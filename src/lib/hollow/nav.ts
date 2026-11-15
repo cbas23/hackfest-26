@@ -1,5 +1,5 @@
 import type { Point, Room } from '#lib/tunnels/generate.js';
-import { FLOOR_CONFIG, LEVELS, SHAFTS } from './data.js';
+import { FACILITY_INFO, FLOOR_CONFIG, LEVELS, SHAFTS, type FacilityKind } from './data.js';
 import type { Floor, Hollow } from './world.js';
 
 const W = FLOOR_CONFIG.width;
@@ -12,7 +12,7 @@ const LIFT_MPS = 3;
 const CHECKPOINT_S = 90;
 const TURN_PENALTY_M = 3;
 
-export type PlaceKind = 'block' | 'farm' | 'plant' | 'shaft';
+export type PlaceKind = 'block' | 'farm' | 'plant' | 'shaft' | FacilityKind;
 
 export interface Place {
 	key: string;
@@ -23,6 +23,8 @@ export interface Place {
 	/** Second line, e.g. "Habitation · L3 The Warrens". */
 	sub: string;
 	shaft?: number;
+	/** Facilities only: lore line for the place card. */
+	note?: string;
 }
 
 export interface RouteOptions {
@@ -100,6 +102,15 @@ export function placesOn(floor: Floor): Place[] {
 				kind: 'plant',
 				label: `${level.name} Geothermal ${++plant}`,
 				sub: `Geothermal plant · ${where}`
+			});
+		} else if (floor.facilities.has(r.id)) {
+			const f = floor.facilities.get(r.id)!;
+			out.push({
+				...base,
+				kind: f.kind,
+				label: f.name,
+				sub: `${FACILITY_INFO[f.kind].label} · ${where}`,
+				note: f.note ?? FACILITY_INFO[f.kind].about
 			});
 		} else {
 			out.push({

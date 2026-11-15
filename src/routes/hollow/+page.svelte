@@ -1,7 +1,14 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { Point, Room } from '#lib/tunnels/generate.js';
-	import { HOLLOW_SEED, LEVELS, MAX_DEPTH, SHAFTS, SHAFT_COLORS } from '#lib/hollow/data.js';
+	import {
+		FACILITY_INFO,
+		HOLLOW_SEED,
+		LEVELS,
+		MAX_DEPTH,
+		SHAFTS,
+		SHAFT_COLORS
+	} from '#lib/hollow/data.js';
 	import {
 		findRoute,
 		placesOn,
@@ -10,7 +17,7 @@
 		type Route,
 		type RouteOptions
 	} from '#lib/hollow/nav.js';
-	import { createHollowScene, type HollowScene, type Pick } from '#lib/hollow/scene.js';
+	import { createHollowScene, isDrawn, type HollowScene, type Pick } from '#lib/hollow/scene.js';
 	import { createHollow, type Floor } from '#lib/hollow/world.js';
 
 	const hollow = createHollow(HOLLOW_SEED);
@@ -59,7 +66,17 @@
 		return LEVELS.flatMap((_, i) => (hollow.isReady(i) ? placesFor(hollow.floor(i)) : []));
 	});
 
-	const KIND_ORDER: Record<PlaceKind, number> = { shaft: 0, farm: 1, plant: 2, block: 3 };
+	const KIND_ORDER: Record<PlaceKind, number> = {
+		shaft: 0,
+		directorate: 1,
+		air: 1,
+		water: 1,
+		clinic: 1,
+		market: 1,
+		farm: 2,
+		plant: 3,
+		block: 4
+	};
 	const results = $derived.by(() => {
 		const q = query.trim().toLowerCase();
 		if (!field) return [];
@@ -95,7 +112,12 @@
 		block: '#8b93c7',
 		farm: '#2fb3a3',
 		plant: '#e3965c',
-		shaft: '#38bdf8'
+		shaft: '#38bdf8',
+		air: FACILITY_INFO.air.color,
+		water: FACILITY_INFO.water.color,
+		clinic: FACILITY_INFO.clinic.color,
+		market: FACILITY_INFO.market.color,
+		directorate: FACILITY_INFO.directorate.color
 	};
 	const placeColor = (p: Place) =>
 		p.kind === 'shaft' ? SHAFT_COLORS[SHAFTS[p.shaft!].status] : KIND_COLOR[p.kind];
@@ -228,7 +250,7 @@
 		x: number;
 		y: number;
 		h: number;
-		kind: 'shaft' | 'farm' | 'plant' | 'from' | 'to' | 'ride';
+		kind: PlaceKind | 'from' | 'to' | 'ride';
 		label: string;
 		color: string;
 		place?: Place;
@@ -237,13 +259,14 @@
 	const pins = $derived.by<PinSpec[]>(() => {
 		const out: PinSpec[] = [];
 		for (const p of placesFor(floor)) {
-			if (p.kind === 'block') continue;
+			// Landmarks get pins; housing blocks (hundreds per level) don't.
+			if (p.kind === 'block' || !isDrawn(floor, p.room)) continue;
 			const r = p.room;
 			out.push({
 				key: p.key,
 				x: r.x + r.w / 2,
 				y: r.y + r.h / 2,
-				h: p.kind === 'plant' ? 3.6 : 1.4,
+				h: p.kind === 'shaft' ? 7.5 : p.kind === 'plant' ? 4.5 : 3.5,
 				kind: p.kind,
 				label: p.label,
 				color: placeColor(p),
@@ -260,7 +283,7 @@
 					key: `ride-${i}`,
 					x: gate.x + gate.w / 2,
 					y: gate.y + gate.h / 2,
-					h: 1.4,
+					h: 7.5,
 					kind: 'ride',
 					label: `${down ? '▼' : '▲'} ${SHAFTS[ride.shaft].name} to ${LEVELS[ride.to].code}`,
 					color: SHAFT_COLORS[SHAFTS[ride.shaft].status],
@@ -277,7 +300,7 @@
 				key: kind,
 				x: p.room.x + p.room.w / 2,
 				y: p.room.y + p.room.h / 2,
-				h: 2.6,
+				h: 3,
 				kind,
 				label: p.label,
 				color: kind === 'from' ? '#ffffff' : '#ef4444'
@@ -412,6 +435,18 @@
 				<path d="M12 2c-3 3-5 6-5 9a5 5 0 0 0 4 4.9V22h2v-6.1A5 5 0 0 0 17 11c0-3-2-6-5-9z" />
 			{:else if kind === 'plant'}
 				<path d="M13 2 4 14h6l-1 8 9-12h-6z" />
+			{:else if kind === 'air'}
+				<path
+					d="M12 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm0-8c3 0 4 3 2 7-1-1-3-1-4 0-2-4-1-7 2-7zm8.7 15c-1.5 2.6-4.6 2.4-7.1-1.2 1.3-.4 2.3-2.1 2-3.5 4.4.3 6.6 2.1 5.1 4.7zM3.3 17c-1.5-2.6.2-5.2 4.6-5.6-.3 1.4.7 3.1 2 3.5-2.5 3.6-5.1 4.7-6.6 2.1z"
+				/>
+			{:else if kind === 'water'}
+				<path d="M12 2s-6 7-6 12a6 6 0 0 0 12 0c0-5-6-12-6-12z" />
+			{:else if kind === 'clinic'}
+				<path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6z" />
+			{:else if kind === 'market'}
+				<path d="M4 4h16l-1 5H5zm1 7h14v9h-5v-5h-4v5H5z" />
+			{:else if kind === 'directorate'}
+				<path d="M12 2 3 6v6c0 5 4 9 9 10 5-1 9-5 9-10V6z" />
 			{:else}
 				<path d="M4 21V9l8-6 8 6v12h-6v-6h-4v6z" />
 			{/if}
@@ -788,6 +823,8 @@
 					city's edge; one tunnel in.
 				{:else if p.kind === 'plant'}
 					Geothermal plant feeding the Hollow's grid. When one trips, the deep levels go dark first.
+				{:else if p.kind !== 'block'}
+					{p.note}
 				{:else}
 					<span class={pf.lit[p.room.id] ? 'text-emerald-400' : 'text-slate-400'}
 						>{pf.lit[p.room.id] ? 'Powered' : 'Blackout'}</span

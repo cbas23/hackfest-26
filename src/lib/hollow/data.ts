@@ -2,6 +2,16 @@ import type { FeatureSpec } from '#lib/tunnels/generate.js';
 
 export type ShaftStatus = 'open' | 'restricted' | 'sealed' | 'unregistered';
 
+/** Civic facilities placed in a level's larger chambers. */
+export type FacilityKind = 'air' | 'water' | 'clinic' | 'market' | 'directorate';
+
+export interface FacilitySpec {
+	kind: FacilityKind;
+	name: string;
+	/** Optional lore line; falls back to the kind's description. */
+	note?: string;
+}
+
 export interface Level {
 	index: number;
 	code: string;
@@ -17,6 +27,7 @@ export interface Level {
 	/** Share of the 250×200 grid the city spans. */
 	cityScale: number;
 	features: FeatureSpec[];
+	facilities: FacilitySpec[];
 }
 
 export interface ShaftInfo {
@@ -53,7 +64,26 @@ export const LEVELS: Level[] = [
 		description:
 			'Seat of the Directorate. First access to filtered air, full-spectrum light and open space. The six great shafts were sunk from here. Movement down is easy; movement up requires a permit.',
 		cityScale: 0.62,
-		features: [farms(1)]
+		features: [farms(1)],
+		facilities: [
+			{
+				kind: 'directorate',
+				name: 'Directorate Spire',
+				note: 'Administrative heart of the Hollow. Controls the air supply, the network and all level transit.'
+			},
+			{
+				kind: 'directorate',
+				name: 'Signal Hall',
+				note: 'Network core and level-transit control. All lift permits are issued here.'
+			},
+			{
+				kind: 'air',
+				name: 'Intake North',
+				note: 'Primary air filtration plant. Every breath in the Hollow passes through here first.'
+			},
+			{ kind: 'water', name: 'Crown Reservoir' },
+			{ kind: 'clinic', name: 'Crown Clinic' }
+		]
 	},
 	{
 		index: 1,
@@ -67,7 +97,17 @@ export const LEVELS: Level[] = [
 		description:
 			'The breadbasket of the Hollow. Communal farms ring the city under rationed grow-lamps. Light is metered and sold by the hour.',
 		cityScale: 0.72,
-		features: [farms(6)]
+		features: [farms(6)],
+		facilities: [
+			{
+				kind: 'market',
+				name: 'Lamp Market',
+				note: 'Trade hub where light-hours, water chits and food rations change hands.'
+			},
+			{ kind: 'air', name: 'Lampline Air Exchange' },
+			{ kind: 'water', name: 'Lampline Cistern' },
+			{ kind: 'clinic', name: 'Commons Clinic' }
+		]
 	},
 	{
 		index: 2,
@@ -81,7 +121,22 @@ export const LEVELS: Level[] = [
 		description:
 			'Old subway tunnels turned into stacked housing — the most crowded level in the Hollow. Lung sickness clusters reported in every district.',
 		cityScale: 0.86,
-		features: [farms(3)]
+		features: [farms(3)],
+		facilities: [
+			{
+				kind: 'market',
+				name: 'Old Line Junction',
+				note: 'Where five pre-collapse subway lines met. Now the busiest crossroads in the Hollow.'
+			},
+			{
+				kind: 'clinic',
+				name: 'Clinic Nine',
+				note: 'Overwhelmed by lung sickness. Its patient count does not match Directorate reports.'
+			},
+			{ kind: 'air', name: 'Warrens Air Exchange' },
+			{ kind: 'air', name: 'Stackhouse Vents' },
+			{ kind: 'water', name: 'Warrens Water Works' }
+		]
 	},
 	{
 		index: 3,
@@ -95,7 +150,21 @@ export const LEVELS: Level[] = [
 		description:
 			'Former mine galleries. Recycled water tastes of metal. Rolling blackouts every week; the black market runs when the lights don’t.',
 		cityScale: 0.84,
-		features: [farms(2), plants(1)]
+		features: [farms(2), plants(1)],
+		facilities: [
+			{
+				kind: 'market',
+				name: 'Night Market',
+				note: 'Unofficial exchange. Batteries, filters, rumours of the surface.'
+			},
+			{
+				kind: 'water',
+				name: 'The Drip',
+				note: 'Mid-level water recycler. Running at 40% capacity; water rations halved.'
+			},
+			{ kind: 'air', name: 'Lowmarch Vents' },
+			{ kind: 'clinic', name: 'Lowmarch Clinic' }
+		]
 	},
 	{
 		index: 4,
@@ -109,7 +178,17 @@ export const LEVELS: Level[] = [
 		description:
 			'Where the water ends up. Recycler arrays are breaking down. Blackouts last for days and hit here first. Official sickness figures are lowest here, which nobody believes.',
 		cityScale: 0.78,
-		features: [farms(1), plants(2)]
+		features: [farms(1), plants(2)],
+		facilities: [
+			{
+				kind: 'water',
+				name: 'Recycler Array 7',
+				note: 'The largest water recycler in the Hollow. Three of eight units offline.'
+			},
+			{ kind: 'water', name: 'Sump Pumps' },
+			{ kind: 'air', name: 'Sump Vents' },
+			{ kind: 'clinic', name: 'Sump Clinic' }
+		]
 	},
 	{
 		index: 5,
@@ -123,7 +202,12 @@ export const LEVELS: Level[] = [
 		description:
 			'Galleries abandoned after the first plant failures and quietly resettled by people the levels above pushed out. No lighting schedule — power arrives when the Furnace has some to spare.',
 		cityScale: 0.7,
-		features: [plants(3)]
+		features: [plants(3)],
+		facilities: [
+			{ kind: 'air', name: 'Blackline Vents' },
+			{ kind: 'water', name: 'Blackline Cistern' },
+			{ kind: 'clinic', name: 'Blackline Aid Post' }
+		]
 	},
 	{
 		index: 6,
@@ -137,7 +221,16 @@ export const LEVELS: Level[] = [
 		description:
 			'The aging geothermal plants that power the entire Hollow. Rotating work crews only. Every failure here is felt on every level above.',
 		cityScale: 0.6,
-		features: [plants(6)]
+		features: [plants(6)],
+		facilities: [
+			{
+				kind: 'air',
+				name: 'Vent Works',
+				note: 'Exhausts heat and bad air upward through the old mine vents.'
+			},
+			{ kind: 'water', name: 'Coolant Reservoir' },
+			{ kind: 'clinic', name: 'Furnace Aid Post' }
+		]
 	}
 ];
 
@@ -187,3 +280,33 @@ export const SHAFT_COLORS: Record<ShaftStatus, string> = {
 };
 
 export const MAX_DEPTH = LEVELS[LEVELS.length - 1].depth;
+
+export const FACILITY_INFO: Record<FacilityKind, { label: string; color: string; about: string }> =
+	{
+		air: {
+			label: 'Ventilation',
+			color: '#38bdf8',
+			about: 'Air exchange. Filtered air is metered down from the Crown — less the deeper you go.'
+		},
+		water: {
+			label: 'Water',
+			color: '#3b82f6',
+			about:
+				'Water recycling and storage. Every drop in the Hollow passes through here again and again.'
+		},
+		clinic: {
+			label: 'Clinic',
+			color: '#f87171',
+			about: 'Clinic. Lung-sickness wards; the queue runs down the tunnel.'
+		},
+		market: {
+			label: 'Market',
+			color: '#f59e0b',
+			about: 'Market hub where rations, light-hours and water chits change hands.'
+		},
+		directorate: {
+			label: 'Directorate',
+			color: '#a78bfa',
+			about: 'Directorate office. Permits, checkpoints and the network are run from here.'
+		}
+	};
