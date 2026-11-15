@@ -18,6 +18,7 @@
 		type RouteOptions
 	} from '#lib/hollow/nav.js';
 	import { createHollowScene, isDrawn, type HollowScene, type Pick } from '#lib/hollow/scene.js';
+	import { facilityStatus, STATUS_INFO, type Status } from '#lib/hollow/sensors.js';
 	import { createHollow, type Floor } from '#lib/hollow/world.js';
 
 	const hollow = createHollow(HOLLOW_SEED);
@@ -255,6 +256,8 @@
 		color: string;
 		place?: Place;
 		toFloor?: number;
+		/** Worst sensor status, for monitored facilities. */
+		status?: Status;
 	}
 	const pins = $derived.by<PinSpec[]>(() => {
 		const out: PinSpec[] = [];
@@ -270,7 +273,8 @@
 				kind: p.kind,
 				label: p.label,
 				color: placeColor(p),
-				place: p
+				place: p,
+				status: facilityStatus(p)?.status
 			});
 		}
 		if (route) {
@@ -534,7 +538,16 @@
 						onclick={() => p.place && focusPlace(p.place)}
 						aria-label={p.label}
 					>
-						{@render kindIcon(p.kind, p.color, p.kind === 'shaft' ? 28 : 24)}
+						<span class="relative">
+							{@render kindIcon(p.kind, p.color, p.kind === 'shaft' ? 28 : 24)}
+							{#if p.status}
+								<span
+									class="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[#121726]"
+									style="background:{STATUS_INFO[p.status].color}"
+									title={STATUS_INFO[p.status].label}
+								></span>
+							{/if}
+						</span>
 						{#if showNames || p.kind === 'shaft'}
 							<span
 								class="mt-0.5 text-xs font-semibold whitespace-nowrap text-slate-100 [text-shadow:0_0_3px_#121726,0_0_3px_#121726,0_0_6px_#121726]"
@@ -792,6 +805,7 @@
 	{#if selected}
 		{@const p = selected}
 		{@const pf = hollow.floor(p.floor)}
+		{@const sensors = facilityStatus(p)}
 		<section
 			class="absolute bottom-4 left-4 z-20 w-[min(24rem,calc(100vw-5.5rem))] rounded-2xl border border-white/10 bg-[#1f2638]/95 p-4 shadow-xl backdrop-blur"
 			aria-label={p.label}
@@ -833,6 +847,34 @@
 					door
 				{/if}
 			</p>
+			{#if sensors}
+				{@const overall = STATUS_INFO[sensors.status]}
+				<div class="mt-3 rounded-xl border border-white/10 bg-black/20 p-3">
+					<div class="mb-2 flex items-center justify-between text-xs">
+						<span class="font-semibold tracking-wider text-slate-400">SENSORS</span>
+						<span
+							class="rounded-full px-2 py-0.5 font-semibold"
+							style="color:{overall.color};background:{overall.color}22"
+						>
+							{overall.label}
+						</span>
+					</div>
+					<dl class="grid grid-cols-[auto_1fr_auto] items-center gap-x-2 gap-y-1 text-xs">
+						{#each sensors.readings as r (r.key)}
+							<span
+								class="h-2 w-2 rounded-full"
+								style="background:{STATUS_INFO[r.status].color}"
+								aria-hidden="true"
+							></span>
+							<dt class="text-slate-400">{r.label}</dt>
+							<dd class="text-right text-slate-100 tabular-nums">
+								{r.text}<span class="sr-only"> ({STATUS_INFO[r.status].label})</span>
+							</dd>
+						{/each}
+					</dl>
+					<p class="mt-2 text-[10px] text-slate-500">Simulated readings</p>
+				</div>
+			{/if}
 			<div class="mt-3 flex gap-2">
 				<button
 					class="flex-1 rounded-full bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-500"
