@@ -19,6 +19,7 @@
 	} from '#lib/hollow/nav.js';
 	import { createHollowScene, isDrawn, type HollowScene, type Pick } from '#lib/hollow/scene.js';
 	import { facilityStatus, STATUS_INFO, type Status } from '#lib/hollow/sensors.js';
+	import { assessImpact } from '#lib/hollow/impact.js';
 	import { createHollow, type Floor } from '#lib/hollow/world.js';
 
 	const hollow = createHollow(HOLLOW_SEED);
@@ -319,6 +320,22 @@
 		);
 	});
 	const showNames = $derived(distance < 200);
+
+	// ── Impact assessment (selected facility → affected neighborhoods) ──────
+	const impact = $derived(selected ? assessImpact(hollow.floor(selected.floor), selected) : null);
+	$effect(() => {
+		const show = impact?.active && impact.facility.floor === levelIndex;
+		scene?.setImpact(
+			show
+				? impact.neighborhoods.flatMap((n) =>
+						n.blocks.map((id) => ({
+							room: floor.map.rooms[id],
+							color: STATUS_INFO[n.severity].color
+						}))
+					)
+				: []
+		);
+	});
 
 	// ── Keyboard ─────────────────────────────────────────────────────────────
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- never read by the template
@@ -807,7 +824,7 @@
 		{@const pf = hollow.floor(p.floor)}
 		{@const sensors = facilityStatus(p)}
 		<section
-			class="absolute bottom-4 left-4 z-20 w-[min(24rem,calc(100vw-5.5rem))] rounded-2xl border border-white/10 bg-[#1f2638]/95 p-4 shadow-xl backdrop-blur"
+			class="absolute bottom-4 left-4 z-20 max-h-[calc(100vh-6rem)] w-[min(24rem,calc(100vw-5.5rem))] overflow-y-auto rounded-2xl border border-white/10 bg-[#1f2638]/95 p-4 shadow-xl backdrop-blur"
 			aria-label={p.label}
 		>
 			<div class="flex items-start gap-3">
@@ -873,6 +890,59 @@
 						{/each}
 					</dl>
 					<p class="mt-2 text-[10px] text-slate-500">Simulated readings</p>
+				</div>
+			{/if}
+			{#if impact}
+				<div class="mt-3 rounded-xl border border-white/10 bg-black/20 p-3 text-xs">
+					<div class="mb-2 flex items-center justify-between">
+						<span class="font-semibold tracking-wider text-slate-400">IMPACT</span>
+						{#if impact.active}
+							<span class="font-semibold text-slate-100">
+								≈ {compact.format(impact.affectedTotal)} residents affected
+							</span>
+						{/if}
+					</div>
+					{#if !impact.active}
+						<p class="text-slate-300">
+							Serves ≈ {compact.format(impact.dependentTotal)} residents in {impact.neighborhoods
+								.length} neighborhoods. No one is affected while it reads {STATUS_INFO[
+								impact.status
+							].label.toLowerCase()}.
+						</p>
+					{:else if !impact.neighborhoods.length}
+						<p class="text-slate-300">No housing on this level depends on it.</p>
+					{:else}
+						<table class="w-full">
+							<thead class="text-left text-[10px] text-slate-500">
+								<tr>
+									<th class="pb-1 font-normal">Neighborhood</th>
+									<th class="pb-1 text-right font-normal">Affected</th>
+									<th class="pb-1 text-right font-normal">Severity</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each impact.neighborhoods as n (n.id)}
+									{@const sev = STATUS_INFO[n.severity]}
+									<tr>
+										<td class="py-0.5 text-slate-300">{n.name}</td>
+										<td class="py-0.5 text-right text-slate-100 tabular-nums"
+											>≈ {compact.format(n.affected)}</td
+										>
+										<td class="py-0.5 text-right">
+											<span
+												class="rounded-full px-1.5 py-px font-semibold"
+												style="color:{sev.color};background:{sev.color}22">{sev.label}</span
+											>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					{/if}
+					<p class="mt-2 text-[10px] leading-snug text-slate-500">
+						Simulated: each block depends on its nearest {p.sub.split(' · ')[0].toLowerCase()} facility
+						by tunnel distance. Critical cuts service to all of them, High risk to half.
+					</p>
 				</div>
 			{/if}
 			<div class="mt-3 flex gap-2">
