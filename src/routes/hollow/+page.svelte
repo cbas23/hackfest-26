@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import type { Point, Room } from '#lib/tunnels/generate.js';
+	import type { Room } from '#lib/tunnels/generate.js';
 	import {
 		FACILITY_INFO,
 		HOLLOW_SEED,
@@ -40,6 +40,10 @@
 	let showLevel = $state(false);
 	let distance = $state(250);
 	let heading = $state(0);
+	/** True while the map animates between levels; markers hide meanwhile. */
+	let switching = $state(false);
+	/** All levels stacked at their depths, instead of one at a time. */
+	let overview = $state(false);
 
 	// Directions
 	let from = $state.raw<Place | null>(null);
@@ -124,13 +128,34 @@
 
 	// ── Floors ───────────────────────────────────────────────────────────────
 	function goTo(index: number) {
-		if (index < 0 || index >= LEVELS.length || index === levelIndex) return;
+		if (index < 0 || index >= LEVELS.length) return;
+		if (index === levelIndex && !overview) return;
 		const dir = Math.sign(index - levelIndex);
+		const leaving = overview;
+		overview = false;
 		levelIndex = index;
 		hover = null;
 		scene?.showFloor(hollow.floor(index), dir);
+		if (leaving) scene?.fitBounds(...cityBounds(hollow.floor(index)));
 		scene?.setHover(null);
 		scene?.setSelection(selected?.floor === index ? selected.room : null);
+	}
+
+	/** Show every level at once (or go back to the current one). */
+	function toggleOverview() {
+		if (overview) {
+			overview = false;
+			scene?.setOverview(false, []);
+			scene?.fitBounds(...cityBounds(floor));
+			return;
+		}
+		overview = true;
+		hover = null;
+		scene?.setHover(null);
+		scene?.setOverview(
+			true,
+			LEVELS.map((_, i) => hollow.floor(i))
+		);
 	}
 
 	// ── Selection ────────────────────────────────────────────────────────────
@@ -162,6 +187,10 @@
 
 	function onPick(pick: Pick | null) {
 		field = null;
+		if (overview) {
+			if (pick) goTo(pick.level);
+			return;
+		}
 		const p = placeOf(floor, pick?.room ?? null);
 		if (picking && p) {
 			if (picking === 'from') from = p;
@@ -226,12 +255,19 @@
 		scene?.fitBounds(Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys));
 	}
 
-	// Push route geometry for the visible floor into the scene.
+	// Push the whole route into the scene; it shows the legs for whatever is on screen.
 	$effect(() => {
-		const paths: Point[][] = route
-			? route.legs.filter((l) => l.floor === levelIndex).map((l) => l.path)
-			: [];
-		scene?.setRoute(paths, null);
+		scene?.setRoute(
+			route
+				? {
+						legs: route.legs.map((l) => ({ level: l.floor, path: l.path })),
+						rides: route.rides.map((r) => {
+							const g = hollow.floor(r.from).shaftGates[r.shaft];
+							return { x: g.x + g.w / 2, y: g.y + g.h / 2, from: r.from, to: r.to };
+						})
+					}
+				: null
+		);
 	});
 
 	// When a new route appears, frame its first leg.
@@ -250,7 +286,9 @@
 		x: number;
 		y: number;
 		h: number;
-		kind: PlaceKind | 'from' | 'to' | 'ride';
+		kind: PlaceKind | 'from' | 'to' | 'ride' | 'level';
+		/** Level the pin sits on (lifts it into place in the all-levels view). */
+		level: number;
 		label: string;
 		color: string;
 		place?: Place;
@@ -258,6 +296,39 @@
 	}
 	const pins = $derived.by<PinSpec[]>(() => {
 		const out: PinSpec[] = [];
+		if (overview) {
+			// Stacked view: a label per level, plus where the route starts and ends.
+			for (const l of LEVELS) {
+				const [minX, minY, , maxY] = cityBounds(hollow.floor(l.index));
+				out.push({
+					key: `level-${l.code}`,
+					x: minX - 2,
+					y: (minY + maxY) / 2,
+					h: 1,
+					level: l.index,
+					kind: 'level',
+					label: l.name,
+					color: '#e2e8f0'
+				});
+			}
+			for (const [kind, p] of [
+				['from', from],
+				['to', to]
+			] as const) {
+				if (!p) continue;
+				out.push({
+					key: `${kind}-${p.key}`,
+					x: p.room.x + p.room.w / 2,
+					y: p.room.y + p.room.h / 2,
+					h: 3,
+					level: p.floor,
+					kind,
+					label: p.label,
+					color: kind === 'from' ? '#ffffff' : '#ef4444'
+				});
+			}
+			return out;
+		}
 		for (const p of placesFor(floor)) {
 			// Landmarks get pins; housing blocks (hundreds per level) don't.
 			if (p.kind === 'block' || !isDrawn(floor, p.room)) continue;
@@ -267,6 +338,7 @@
 				x: r.x + r.w / 2,
 				y: r.y + r.h / 2,
 				h: p.kind === 'shaft' ? 7.5 : p.kind === 'plant' ? 4.5 : 3.5,
+				level: levelIndex,
 				kind: p.kind,
 				label: p.label,
 				color: placeColor(p),
@@ -284,6 +356,7 @@
 					x: gate.x + gate.w / 2,
 					y: gate.y + gate.h / 2,
 					h: 7.5,
+					level: levelIndex,
 					kind: 'ride',
 					label: `${down ? '▼' : '▲'} ${SHAFTS[ride.shaft].name} to ${LEVELS[ride.to].code}`,
 					color: SHAFT_COLORS[SHAFTS[ride.shaft].status],
@@ -301,6 +374,7 @@
 				x: p.room.x + p.room.w / 2,
 				y: p.room.y + p.room.h / 2,
 				h: 3,
+				level: levelIndex,
 				kind,
 				label: p.label,
 				color: kind === 'from' ? '#ffffff' : '#ef4444'
@@ -311,7 +385,9 @@
 	const pinEls = $state<Record<string, HTMLElement>>({});
 	$effect(() => {
 		scene?.setPins(
-			pins.filter((p) => pinEls[p.key]).map((p) => ({ el: pinEls[p.key], x: p.x, y: p.y, h: p.h }))
+			pins
+				.filter((p) => pinEls[p.key])
+				.map((p) => ({ el: pinEls[p.key], x: p.x, y: p.y, h: p.h, level: p.level }))
 		);
 	});
 	const showNames = $derived(distance < 200);
@@ -352,11 +428,13 @@
 		else if (k === '-' || k === '_') scene?.zoomBy(1 / 1.5);
 		else if (k === 'n') scene?.resetNorth();
 		else if (k === 'f') fitFloor();
+		else if (k === 'o') toggleOverview();
 		else if (k === '/') {
 			e.preventDefault();
 			document.getElementById('hollow-search')?.focus();
 		} else if (k === 'escape') {
-			if (picking) picking = null;
+			if (overview) toggleOverview();
+			else if (picking) picking = null;
 			else if (selected) {
 				selected = null;
 				scene?.setSelection(null);
@@ -368,13 +446,14 @@
 	onMount(() => {
 		const s = createHollowScene(container, {
 			onHover: (p) => {
-				const r = p?.room ?? null;
+				const r = overview ? null : (p?.room ?? null);
 				if (r !== hover) {
 					hover = r;
 					s.setHover(r);
 				}
 			},
 			onClick: onPick,
+			onTransition: (active) => (switching = active),
 			onView: (v) => {
 				distance = v.distance;
 				heading = v.heading;
@@ -499,7 +578,11 @@
 	></div>
 
 	<!-- Map markers -->
-	<div class="pointer-events-none absolute inset-0 isolate z-0 overflow-hidden">
+	<div
+		class="pointer-events-none absolute inset-0 isolate z-0 overflow-hidden transition-opacity {switching
+			? 'opacity-0 duration-100'
+			: 'opacity-100 duration-200'}"
+	>
 		{#each pins as p (p.key)}
 			<div bind:this={pinEls[p.key]} class="absolute top-0 left-0" style="visibility:hidden">
 				{#if p.kind === 'to'}
@@ -521,6 +604,17 @@
 						role="img"
 						aria-label="Start: {p.label}"
 					></span>
+				{:else if p.kind === 'level'}
+					{@const l = LEVELS[p.level]}
+					<button
+						class="pointer-events-auto absolute -translate-x-full -translate-y-1/2 rounded-full border border-white/15 bg-[#1f2638]/95 px-3 py-1 text-xs whitespace-nowrap text-slate-200 shadow-lg hover:border-sky-400 hover:text-white"
+						onclick={() => goTo(p.level)}
+						title="Go to {l.name}"
+					>
+						<span class="font-bold text-sky-300">{l.code}</span>
+						{l.name}
+						<span class="text-slate-400">−{l.depth} m</span>
+					</button>
 				{:else if p.kind === 'ride'}
 					<button
 						class="pointer-events-auto absolute -translate-x-1/2 -translate-y-[calc(100%+18px)] rounded-full border border-white/20 bg-[#0f5f73] px-3 py-1 text-xs font-semibold whitespace-nowrap text-white shadow-lg hover:bg-[#13748c]"
@@ -691,9 +785,14 @@
 			aria-expanded={showLevel}
 			onclick={() => (showLevel = !showLevel)}
 		>
-			<span class="font-bold text-sky-300">{level.code}</span>
-			<span class="text-slate-100">{level.name}</span>
-			<span class="text-slate-400">−{level.depth} m</span>
+			{#if overview}
+				<span class="font-bold text-sky-300">All levels</span>
+				<span class="text-slate-400">−{LEVELS[0].depth} to −{MAX_DEPTH} m</span>
+			{:else}
+				<span class="font-bold text-sky-300">{level.code}</span>
+				<span class="text-slate-100">{level.name}</span>
+				<span class="text-slate-400">−{level.depth} m</span>
+			{/if}
 			<span class="text-slate-500">{showLevel ? '▴' : 'ⓘ'}</span>
 		</button>
 		{#if showLevel}
@@ -724,8 +823,19 @@
 		<span class="px-2 pt-2 pb-1 text-center text-[10px] font-semibold tracking-wider text-slate-500"
 			>LEVEL</span
 		>
+		<button
+			class="px-3 py-2 text-xs font-semibold {overview
+				? 'bg-sky-600 text-white'
+				: 'text-slate-300 hover:bg-white/10'}"
+			aria-pressed={overview}
+			title="See all levels at once (O)"
+			onclick={toggleOverview}
+		>
+			All
+		</button>
+		<span class="mx-2 h-px bg-white/10"></span>
 		{#each LEVELS as l (l.code)}
-			{@const active = l.index === levelIndex}
+			{@const active = l.index === levelIndex && !overview}
 			<button
 				class="relative px-3 py-2 text-sm font-semibold {active
 					? 'bg-sky-600 text-white'
@@ -857,8 +967,8 @@
 		<p
 			class="pointer-events-none absolute bottom-4 left-1/2 hidden -translate-x-1/2 text-[11px] whitespace-nowrap text-slate-500 xl:block"
 		>
-			Drag to pan · right-drag to rotate · scroll to zoom · Q/E change level · F whole level · /
-			search
+			Drag to pan · right-drag to rotate · scroll to zoom · Q/E change level · O all levels · F
+			whole level · / search
 			{#if dug < LEVELS.length}· mapping {LEVELS[dug].code}…{/if}
 		</p>
 	{/if}

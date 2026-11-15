@@ -12,7 +12,17 @@ const TUNNEL_H = 1.5;
 const ROOM_BASE_H = 2;
 /** Shaft landings are open well-tubes rising out of the level. */
 const SHAFT_H = 7;
-const TRAVEL = 10;
+/** Level change: the old level slides away under a veil, the new one slides in. */
+const LEVEL_OUT_MS = 170;
+const LEVEL_IN_MS = 280;
+/** How far a level slides during the change, in blocks. */
+const LEVEL_SLIDE = 6;
+const BACKGROUND = '#121726';
+/** All-levels view: levels stack at their true relative depth, scaled to blocks. */
+const STACK_SCALE = 0.125;
+const stackY = (level: number) => -(LEVELS[level].depth - LEVELS[0].depth) * STACK_SCALE;
+/** Where the camera looks in the all-levels view: a little above the middle of the stack. */
+const STACK_MID = stackY(LEVELS.length - 1) * 0.3;
 
 /** Height the route ribbon rides at: on top of the (solid) tunnels. */
 const ROUTE_Y = TUNNEL_H;
@@ -35,6 +45,8 @@ const wz = (y: number) => y - H / 2;
 export interface Pick {
 	tile: Point;
 	room: Room | null;
+	/** Level the pick landed on (in the all-levels view, the one under the cursor). */
+	level: number;
 }
 
 export interface Pin {
@@ -44,12 +56,23 @@ export interface Pin {
 	y: number;
 	/** Height above the floor. */
 	h?: number;
+	/** Level the pin belongs to; used to lift it onto that level in the all-levels view. */
+	level?: number;
+}
+
+/** A route as the scene draws it: walking legs per level, joined by shaft rides. */
+export interface RouteDraw {
+	legs: { level: number; path: Point[] }[];
+	/** Shaft rides, at the landing's tile, between two levels. */
+	rides: { x: number; y: number; from: number; to: number }[];
 }
 
 export interface SceneOptions {
 	onHover(pick: Pick | null): void;
 	onClick(pick: Pick | null): void;
 	onView?(info: { distance: number; heading: number }): void;
+	/** A level change started (true) or finished (false); overlays should hide meanwhile. */
+	onTransition?(active: boolean): void;
 }
 
 export interface HollowScene {
@@ -57,8 +80,9 @@ export interface HollowScene {
 	showFloor(floor: Floor, dir: number): void;
 	setHover(room: Room | null): void;
 	setSelection(room: Room | null): void;
-	/** Route polylines for the shown floor, plus the slice for the active step. */
-	setRoute(paths: Point[][], active: Point[] | null): void;
+	setRoute(route: RouteDraw | null): void;
+	/** Stack every level at its depth (`floors` must hold all of them), or go back to one. */
+	setOverview(on: boolean, floors: Floor[]): void;
 	setPins(pins: Pin[]): void;
 	flyTo(x: number, y: number, opts?: { distance?: number; heading?: Point; tilt?: number }): void;
 	fitBounds(minX: number, minY: number, maxX: number, maxY: number): void;
@@ -216,11 +240,7 @@ const SIDES: [Dir, number, number][] = [
 
 interface FloorMesh {
 	group: THREE.Group;
-	materials: THREE.Material[];
-	opacity: number;
-	y: number;
-	targetY: number;
-	targetOpacity: number;
+	floor: Floor;
 }
 
 /** Simple fixtures on a facility's roof that say what it is at a glance. */
@@ -298,13 +318,7 @@ function buildFloor(floor: Floor): FloorMesh {
 	const places = new Builder();
 	const glow = new Builder();
 
-	const roomOf = (x: number, y: number) => rooms[roomAt[y]?.[x] ?? -1];
 	const isRoad = (x: number, y: number) => grid[y]?.[x] === 'road';
-	/** Tunnels and drawn places are air; everything else counts as solid rock. */
-	const isAir = (x: number, y: number) => {
-		const t = grid[y]?.[x] ?? 'void';
-		return t === 'road' || (t !== 'void' && t !== 'rock' && isDrawn(floor, roomOf(x, y)));
-	};
 
 	/** A run of 1-block-high wall faces, darker toward the bottom. */
 	const wallColumn = (
@@ -333,10 +347,10 @@ function buildFloor(floor: Floor): FloorMesh {
 			const x0 = wx(x);
 			const z0 = wz(y);
 			const seed = (y * W + x) * 7 + floor.index * 1_000_003;
-			// Faces against other air are skipped: the network reads as one solid, and
-			// nothing ends up coplanar with a place's wall.
+			// Only adjoining tunnel tiles share an open face. Keep walls beside places so
+			// the tunnel owns its full silhouette (and stencil mask), even at a room's door.
 			for (const [d, dx, dy] of SIDES)
-				if (!isAir(x + dx, y + dy))
+				if (!isRoad(x + dx, y + dy))
 					wallColumn(tunnels, d, x0, z0, TUNNEL_H, c.tunnelWall, seed, 0.8);
 			tunnels.top(x0, z0, x0 + 1, z0 + 1, TUNNEL_H, shade(c.road, seed, 0.06));
 			tunnels.top(x0, z0, x0 + 1, z0 + 1, 0, c.tunnelWall.clone().multiplyScalar(0.6), true);
@@ -481,14 +495,7 @@ function buildFloor(floor: Floor): FloorMesh {
 	mesh(glowGeo, glowMat, 2);
 	mesh(placeGeo, placeGhost, 3);
 	mesh(glowGeo, glowGhost, 3);
-	return {
-		group,
-		materials: [tunnelMat, placeMat, placeGhost, glowMat, glowGhost],
-		opacity: 0,
-		y: 0,
-		targetY: 0,
-		targetOpacity: 1
-	};
+	return { group, floor };
 }
 
 // ── Route ribbon ────────────────────────────────────────────────────────────
@@ -566,21 +573,122 @@ export function createHollowScene(container: HTMLElement, opts: SceneOptions): H
 	// ── Floors ──────────────────────────────────────────────────────────────
 	const meshes = new Map<number, FloorMesh>();
 	let current: Floor | null = null;
-	const applyFade = (fm: FloorMesh) => {
-		const fading = fm.opacity < 0.999;
-		for (const m of fm.materials) {
-			const base = (m.userData.baseOpacity as number | undefined) ?? 1;
-			m.transparent = fading || base < 1;
-			m.depthWrite = !m.transparent;
-			m.opacity = base * fm.opacity;
+
+	// Everything tied to the visible level (route, outlines) moves with it.
+	const overlay = new THREE.Group();
+	scene.add(overlay);
+
+	// A veil in the background colour hides the swap between levels. Only one level is
+	// ever drawn, so nothing has to turn transparent mid-change.
+	const veil = document.createElement('div');
+	Object.assign(veil.style, {
+		position: 'absolute',
+		inset: '0',
+		background: BACKGROUND,
+		opacity: '0',
+		pointerEvents: 'none'
+	});
+	container.appendChild(veil);
+
+	interface Transition {
+		from: FloorMesh | null;
+		to: FloorMesh;
+		dir: number;
+		start: number;
+	}
+	let transition: Transition | null = null;
+	let veilLevel = 0;
+	const easeIn = (t: number) => t * t;
+	const easeOut = (t: number) => 1 - (1 - t) * (1 - t);
+	const showOnly = (fm: FloorMesh | null) => {
+		for (const m of meshes.values()) m.group.visible = m === fm;
+	};
+
+	/** Advance the level change by wall-clock time, so slow frames can't stretch it. */
+	const stepTransition = (now: number) => {
+		if (!transition) return;
+		const { from, to, dir } = transition;
+		const t = now - transition.start;
+		const outMs = from ? LEVEL_OUT_MS : 0;
+		if (from && t < outMs) {
+			// Out: the level you're leaving slides away (up when going deeper) as the veil closes.
+			const p = easeIn(t / outMs);
+			showOnly(from);
+			from.group.position.y = dir * LEVEL_SLIDE * p;
+			overlay.visible = false;
+			veilLevel = p;
+		} else {
+			// In: the new level slides into place from the other side as the veil lifts.
+			const p = Math.min(1, (t - outMs) / LEVEL_IN_MS);
+			const e = easeOut(p);
+			showOnly(to);
+			if (from) from.group.position.y = 0;
+			to.group.position.y = -dir * LEVEL_SLIDE * (1 - e);
+			overlay.visible = true;
+			overlay.position.y = to.group.position.y;
+			veilLevel = from ? 1 - e : 0;
+			if (p >= 1) {
+				transition = null;
+				veilLevel = 0;
+				opts.onTransition?.(false);
+			}
 		}
-		fm.group.visible = fm.opacity > 0.001;
-		fm.group.position.y = fm.y;
+		veil.style.opacity = veilLevel.toFixed(3);
+	};
+
+	// ── All-levels view ─────────────────────────────────────────────────────
+	let overview = false;
+	/** Height the camera orbits at: 0 on a level, the middle of the stack in the overview. */
+	let baseY = 0;
+	/** A plain veil dip (no slide) that swaps the layout while the screen is covered. */
+	let dip: { apply: () => void; start: number; applied: boolean } | null = null;
+	const startDip = (apply: () => void) => {
+		// Finish any level slide first so the two animations never fight.
+		if (transition) {
+			showOnly(transition.to);
+			transition.to.group.position.y = 0;
+			overlay.position.y = 0;
+			transition = null;
+		}
+		if (dip && !dip.applied) dip.apply = apply;
+		else
+			dip = {
+				apply,
+				start: performance.now() - Math.sqrt(veilLevel) * LEVEL_OUT_MS,
+				applied: false
+			};
+		opts.onTransition?.(true);
+	};
+	const stepDip = (now: number) => {
+		if (!dip) return;
+		const t = now - dip.start;
+		if (t < LEVEL_OUT_MS) veilLevel = easeIn(t / LEVEL_OUT_MS);
+		else {
+			if (!dip.applied) {
+				dip.apply();
+				dip.applied = true;
+			}
+			const p = Math.min(1, (t - LEVEL_OUT_MS) / LEVEL_IN_MS);
+			veilLevel = 1 - easeOut(p);
+			if (p >= 1) {
+				dip = null;
+				veilLevel = 0;
+				opts.onTransition?.(false);
+			}
+		}
+		veil.style.opacity = veilLevel.toFixed(3);
+	};
+	const setFog = (far: boolean) => {
+		const fog = scene.fog as THREE.Fog;
+		fog.near = far ? 520 : 260;
+		fog.far = far ? 1500 : 720;
 	};
 
 	// ── Route ───────────────────────────────────────────────────────────────
-	const routeGroup = new THREE.Group();
-	scene.add(routeGroup);
+	/** One group per level holding that level's legs, plus the vertical shaft rides. */
+	const routeLevels = new Map<number, THREE.Group>();
+	const rideGroup = new THREE.Group();
+	scene.add(rideGroup);
 	const routeMesh = (b: Builder, opacity: number, onTop: boolean, order: number) => {
 		const mat = new THREE.MeshBasicMaterial({
 			vertexColors: true,
@@ -603,7 +711,7 @@ export function createHollowScene(container: HTMLElement, opts: SceneOptions): H
 		);
 		o.renderOrder = 20;
 		o.visible = false;
-		scene.add(o);
+		overlay.add(o);
 		return o;
 	};
 	const hoverBox = makeOutline('#e2e8f0', 0.55);
@@ -630,7 +738,24 @@ export function createHollowScene(container: HTMLElement, opts: SceneOptions): H
 			-((e.clientY - rect.top) / rect.height) * 2 + 1
 		);
 		raycaster.setFromCamera(ndc, camera);
+		if (overview) {
+			// The first level (from the top) whose dug area is under the cursor.
+			for (let i = 0; i < LEVELS.length; i++) {
+				const fm = meshes.get(i);
+				if (!fm) continue;
+				ground.constant = -(stackY(i) + TUNNEL_H);
+				if (!raycaster.ray.intersectPlane(ground, hit)) continue;
+				const x = Math.floor(hit.x + W / 2);
+				const y = Math.floor(hit.z + H / 2);
+				if ((fm.floor.map.grid[y]?.[x] ?? 'void') !== 'void')
+					return { tile: { x, y }, room: null, level: i };
+			}
+			ground.constant = 0;
+			return null;
+		}
+		ground.constant = 0;
 		const { map } = current;
+		const level = current.index;
 		const origin = raycaster.ray.origin;
 		// Buildings stand above the floor, so test their boxes before the ground behind them.
 		let room: Room | null = null;
@@ -647,13 +772,14 @@ export function createHollowScene(container: HTMLElement, opts: SceneOptions): H
 			}
 		}
 		if (!raycaster.ray.intersectPlane(ground, hit))
-			return room ? { tile: { ...room.door }, room } : null;
+			return room ? { tile: { ...room.door }, room, level } : null;
 		const x = Math.floor(hit.x + W / 2);
 		const y = Math.floor(hit.z + H / 2);
-		if (room && nearest < hit.distanceToSquared(origin)) return { tile: { x, y }, room };
-		if ((map.grid[y]?.[x] ?? 'void') === 'void') return room ? { tile: { x, y }, room } : null;
+		if (room && nearest < hit.distanceToSquared(origin)) return { tile: { x, y }, room, level };
+		if ((map.grid[y]?.[x] ?? 'void') === 'void')
+			return room ? { tile: { x, y }, room, level } : null;
 		const under = map.rooms[map.roomAt[y][x]];
-		return { tile: { x, y }, room: isDrawn(current, under) ? under : null };
+		return { tile: { x, y }, room: isDrawn(current, under) ? under : null, level };
 	}
 
 	let down: { x: number; y: number } | null = null;
@@ -693,7 +819,8 @@ export function createHollowScene(container: HTMLElement, opts: SceneOptions): H
 	let pins: Pin[] = [];
 	const v = new THREE.Vector3();
 	const placePin = (p: Pin) => {
-		v.set(wx(p.x), p.h ?? 1, wz(p.y)).project(camera);
+		const lift = overview && p.level !== undefined ? stackY(p.level) : 0;
+		v.set(wx(p.x), (p.h ?? 1) + lift, wz(p.y)).project(camera);
 		const visible = v.z > -1 && v.z < 1 && Math.abs(v.x) < 1.05 && Math.abs(v.y) < 1.05;
 		p.el.style.visibility = visible ? 'visible' : 'hidden';
 		if (!visible) return;
@@ -728,6 +855,7 @@ export function createHollowScene(container: HTMLElement, opts: SceneOptions): H
 		if (fly) {
 			controls.target.x += (fly.x - controls.target.x) * k;
 			controls.target.z += (fly.z - controls.target.z) * k;
+			controls.target.y += (baseY - controls.target.y) * k;
 			const dist = offset.length();
 			const next = dist * Math.pow(fly.dist / dist, k);
 			offset.normalize();
@@ -736,6 +864,7 @@ export function createHollowScene(container: HTMLElement, opts: SceneOptions): H
 			if (
 				Math.abs(fly.x - controls.target.x) < 0.03 &&
 				Math.abs(fly.z - controls.target.z) < 0.03 &&
+				Math.abs(baseY - controls.target.y) < 0.03 &&
 				Math.abs(fly.dist / next - 1) < 0.002 &&
 				(!fly.dir || offset.angleTo(fly.dir) < 0.005)
 			)
@@ -743,19 +872,18 @@ export function createHollowScene(container: HTMLElement, opts: SceneOptions): H
 		}
 		controls.target.x = THREE.MathUtils.clamp(controls.target.x, -W / 2, W / 2);
 		controls.target.z = THREE.MathUtils.clamp(controls.target.z, -H / 2, H / 2);
-		controls.target.y = 0;
+		if (!fly) controls.target.y = baseY;
 		controls.update();
 
-		// Elevator transition between floors.
-		const kf = 1 - Math.exp(-dt / 170);
-		for (const fm of meshes.values()) {
-			if (fm.opacity === fm.targetOpacity && fm.y === fm.targetY) continue;
-			fm.opacity += (fm.targetOpacity - fm.opacity) * kf;
-			fm.y += (fm.targetY - fm.y) * kf;
-			if (Math.abs(fm.targetOpacity - fm.opacity) < 0.004) fm.opacity = fm.targetOpacity;
-			if (Math.abs(fm.targetY - fm.y) < 0.01) fm.y = fm.targetY;
-			applyFade(fm);
+		const now = performance.now();
+		stepTransition(now);
+		stepDip(now);
+		// Route legs ride with their level: the visible one normally, every one when stacked.
+		for (const [level, g] of routeLevels) {
+			g.visible = overview || (level === current?.index && overlay.visible);
+			g.position.y = overview ? stackY(level) : overlay.position.y;
 		}
+		rideGroup.visible = overview;
 
 		for (const p of pins) placePin(p);
 		renderer.render(scene, camera);
@@ -786,44 +914,120 @@ export function createHollowScene(container: HTMLElement, opts: SceneOptions): H
 				fm = buildFloor(floor);
 				meshes.set(floor.index, fm);
 				scene.add(fm.group);
+				fm.group.visible = false;
 			}
-			if (current?.index !== floor.index) {
-				// New floor rises (or sinks) into place; the one you leave slides the other way.
-				fm.y = -dir * TRAVEL;
-				for (const [i, other] of meshes) {
-					if (i === floor.index || other.targetOpacity === 0) continue;
-					other.targetOpacity = 0;
-					other.targetY = dir * TRAVEL;
-				}
+			if (overview) {
+				// Leaving the all-levels view: dip, then show just this level.
+				current = floor;
+				startDip(() => {
+					overview = false;
+					baseY = 0;
+					setFog(false);
+					showOnly(fm);
+					fm.group.position.y = 0;
+					overlay.position.y = 0;
+					overlay.visible = true;
+				});
+				return;
 			}
-			fm.targetY = 0;
-			fm.targetOpacity = 1;
-			if (dir === 0) {
-				fm.y = 0;
-				fm.opacity = 1;
-			}
-			applyFade(fm);
+			const same = current?.index === floor.index;
 			current = floor;
+			if (same && !transition) return;
+			if (dir === 0 || !current) {
+				transition = null;
+				showOnly(fm);
+				fm.group.position.y = 0;
+				overlay.position.y = 0;
+				overlay.visible = true;
+				veil.style.opacity = '0';
+				return;
+			}
+			// Whatever is on screen now is what slides away. Start the "out" phase where the
+			// veil currently is, so changing level again mid-change stays smooth.
+			const visible = transition
+				? veilLevel > 0 && transition.from?.group.visible
+					? transition.from
+					: transition.to
+				: ([...meshes.values()].find((m) => m.group.visible && m !== fm) ?? null);
+			const now = performance.now();
+			transition = {
+				from: visible && visible !== fm ? visible : null,
+				to: fm,
+				dir: Math.sign(dir),
+				// The out phase eases with t², so invert that to resume at the same veil level.
+				start: now - Math.sqrt(veilLevel) * LEVEL_OUT_MS
+			};
+			if (transition.from) transition.from.group.position.y = dir * LEVEL_SLIDE * veilLevel;
+			opts.onTransition?.(true);
+			stepTransition(now);
 		},
 		setHover: (r) => placeOutline(hoverBox, r),
 		setSelection: (r) => placeOutline(selectBox, r),
-		setRoute(paths, active) {
-			for (const c of [...routeGroup.children]) {
-				routeGroup.remove(c);
-				disposeTree(c);
+		setRoute(route) {
+			for (const g of [...routeLevels.values(), rideGroup]) {
+				for (const c of [...g.children]) {
+					g.remove(c);
+					disposeTree(c);
+				}
 			}
-			if (!paths.length) return;
+			for (const g of routeLevels.values()) scene.remove(g);
+			routeLevels.clear();
+			if (!route) return;
 			const casing = new THREE.Color('#1667c9');
 			const core = new THREE.Color('#38d8f2');
-			// The solid pass sits on the tunnel floor; the see-through pass keeps it readable past the
-			// tunnel walls, which hide most of the floor at map angles.
-			routeGroup.add(routeMesh(ribbon(paths, 0.5, ROUTE_Y + 0.05, core), 0.8, true, 9));
-			routeGroup.add(routeMesh(ribbon(paths, 0.86, ROUTE_Y + 0.07, casing), 1, false, 6));
-			routeGroup.add(routeMesh(ribbon(paths, 0.56, ROUTE_Y + 0.09, core), 1, false, 7));
-			if (active?.length)
-				routeGroup.add(
-					routeMesh(ribbon([active], 0.26, ROUTE_Y + 0.11, new THREE.Color('#ecfeff')), 1, false, 8)
-				);
+			const byLevel = new Map<number, Point[][]>();
+			for (const leg of route.legs)
+				byLevel.set(leg.level, [...(byLevel.get(leg.level) ?? []), leg.path]);
+			for (const [level, paths] of byLevel) {
+				const g = new THREE.Group();
+				// The see-through pass keeps the line readable past buildings; the solid passes
+				// sit on the tunnel tops.
+				g.add(routeMesh(ribbon(paths, 0.5, ROUTE_Y + 0.05, core), 0.8, true, 9));
+				g.add(routeMesh(ribbon(paths, 0.86, ROUTE_Y + 0.07, casing), 1, false, 6));
+				g.add(routeMesh(ribbon(paths, 0.56, ROUTE_Y + 0.09, core), 1, false, 7));
+				routeLevels.set(level, g);
+				scene.add(g);
+			}
+			// Shaft rides: vertical lines between levels, only shown when the levels are stacked.
+			for (const r of route.rides) {
+				const top = stackY(Math.min(r.from, r.to)) + ROUTE_Y;
+				const bottom = stackY(Math.max(r.from, r.to)) + ROUTE_Y;
+				const b = new Builder();
+				const cx = wx(r.x);
+				const cz = wz(r.y);
+				b.box(cx - 0.35, cz - 0.35, cx + 0.35, cz + 0.35, bottom, top, core);
+				rideGroup.add(routeMesh(b, 0.85, true, 9));
+			}
+		},
+		setOverview(on, floors) {
+			if (on === overview && !dip) return;
+			if (on) {
+				// Build every level now, before the dip starts, so the swap can't stall.
+				for (const f of floors) {
+					if (meshes.has(f.index)) continue;
+					const fm = buildFloor(f);
+					fm.group.visible = false;
+					meshes.set(f.index, fm);
+					scene.add(fm.group);
+				}
+				startDip(() => {
+					overview = true;
+					baseY = STACK_MID;
+					setFog(true);
+					for (const [i, fm] of meshes) {
+						fm.group.visible = true;
+						fm.group.position.y = stackY(i);
+					}
+					overlay.visible = false;
+					// Pulled back and lifted a touch so the top levels clear the search/directions panel.
+					fly = {
+						x: 0,
+						z: 0,
+						dist: 520,
+						dir: new THREE.Vector3(0.55, 0.42, 0.72).normalize()
+					};
+				});
+			} else if (current) this.showFloor(current, 0);
 		},
 		setPins(next) {
 			pins = next;
@@ -884,6 +1088,7 @@ export function createHollowScene(container: HTMLElement, opts: SceneOptions): H
 			el.removeEventListener('pointermove', onMove);
 			el.removeEventListener('pointerup', onUp);
 			el.removeEventListener('pointerleave', onLeave);
+			veil.remove();
 			disposeTree(scene);
 			renderer.dispose();
 			el.remove();
