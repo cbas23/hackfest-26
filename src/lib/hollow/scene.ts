@@ -241,6 +241,35 @@ const SIDES: [Dir, number, number][] = [
 interface FloorMesh {
 	group: THREE.Group;
 	floor: Floor;
+	/** Shaft landings, hidden in the all-levels view where each shaft is one column. */
+	shaftParts: THREE.Object3D[];
+}
+
+/** One look for a shaft everywhere it appears: tinted by its status. */
+function shaftColors(shaft: number) {
+	const status = shaft >= 0 ? SHAFT_COLORS[SHAFTS[shaft].status] : '#5eead4';
+	const wall = new THREE.Color('#3b4a74').lerp(new THREE.Color(status), 0.35);
+	return { wall, roof: wall.clone().multiplyScalar(1.15), well: new THREE.Color('#141a2b') };
+}
+
+/** Opaque wherever no tunnel is behind; see-through wherever one is (via the stencil mark). */
+function ghostedPair(make: (p: THREE.MeshBasicMaterialParameters) => THREE.Material) {
+	const opaque = make({
+		vertexColors: true,
+		stencilWrite: true,
+		stencilRef: 1,
+		stencilFunc: THREE.NotEqualStencilFunc
+	});
+	const ghost = make({
+		vertexColors: true,
+		transparent: true,
+		opacity: GHOST_OPACITY,
+		depthWrite: false,
+		stencilWrite: true,
+		stencilRef: 1,
+		stencilFunc: THREE.EqualStencilFunc
+	});
+	return [opaque, ghost] as const;
 }
 
 /** Simple fixtures on a facility's roof that say what it is at a glance. */
@@ -316,6 +345,8 @@ function buildFloor(floor: Floor): FloorMesh {
 	const c = paletteFor(floor.index);
 	const tunnels = new Builder();
 	const places = new Builder();
+	const shafts = new Builder();
+	const shaftGlow = new Builder();
 	const glow = new Builder();
 
 	const isRoad = (x: number, y: number) => grid[y]?.[x] === 'road';
@@ -381,10 +412,9 @@ function buildFloor(floor: Floor): FloorMesh {
 			wall = lit ? c.placeWall : c.blockWallDark;
 			roof = lit ? c.placeRoof : c.blockRoofDark;
 		} else {
-			const status = shaft >= 0 ? SHAFT_COLORS[SHAFTS[shaft].status] : '#5eead4';
-			wall = c.shaftWall.clone().lerp(new THREE.Color(status), 0.35);
-			roof = wall.clone().multiplyScalar(1.15);
+			({ wall, roof } = shaftColors(shaft));
 		}
+		const into = r.kind === 'gate' ? shafts : places;
 
 		for (let y = r.y; y < r.y + r.h; y++)
 			for (let x = r.x; x < r.x + r.w; x++) {
@@ -392,8 +422,8 @@ function buildFloor(floor: Floor): FloorMesh {
 				const z0 = wz(y);
 				const seed = (y * W + x) * 7 + floor.index * 1_000_003;
 				for (const [d, dx, dy] of SIDES)
-					if (roomAt[y + dy]?.[x + dx] !== r.id) wallColumn(places, d, x0, z0, h, wall, seed, 0.7);
-				places.top(x0, z0, x0 + 1, z0 + 1, h, shade(roof, seed, 0.08));
+					if (roomAt[y + dy]?.[x + dx] !== r.id) wallColumn(into, d, x0, z0, h, wall, seed, 0.7);
+				into.top(x0, z0, x0 + 1, z0 + 1, h, shade(roof, seed, 0.08));
 			}
 
 		const x0 = wx(r.x);
@@ -418,7 +448,7 @@ function buildFloor(floor: Floor): FloorMesh {
 				}
 		} else if (r.kind === 'gate') {
 			// The well opening at the top of the shaft.
-			glow.top(x0 + 0.7, z0 + 0.7, x0 + r.w - 0.7, z0 + r.h - 0.7, h + 0.03, c.shaftRoof);
+			shaftGlow.top(x0 + 0.7, z0 + 0.7, x0 + r.w - 0.7, z0 + r.h - 0.7, h + 0.03, c.shaftRoof);
 		} else if (r.kind === 'plant') {
 			const cx = x0 + r.w / 2;
 			const cz = z0 + r.h / 2;
@@ -459,34 +489,15 @@ function buildFloor(floor: Floor): FloorMesh {
 		stencilFunc: THREE.AlwaysStencilFunc,
 		stencilZPass: THREE.ReplaceStencilOp
 	});
-	/** Opaque wherever no tunnel is behind; see-through wherever one is. */
-	const pair = (make: (p: THREE.MeshBasicMaterialParameters) => THREE.Material) => {
-		const opaque = make({
-			vertexColors: true,
-			stencilWrite: true,
-			stencilRef: 1,
-			stencilFunc: THREE.NotEqualStencilFunc
-		});
-		const ghost = make({
-			vertexColors: true,
-			transparent: true,
-			opacity: GHOST_OPACITY,
-			depthWrite: false,
-			stencilWrite: true,
-			stencilRef: 1,
-			stencilFunc: THREE.EqualStencilFunc
-		});
-		ghost.userData.baseOpacity = GHOST_OPACITY;
-		return [opaque, ghost] as const;
-	};
-	const [placeMat, placeGhost] = pair((p) => new THREE.MeshLambertMaterial(p));
-	const [glowMat, glowGhost] = pair((p) => new THREE.MeshBasicMaterial(p));
+	const [placeMat, placeGhost] = ghostedPair((p) => new THREE.MeshLambertMaterial(p));
+	const [glowMat, glowGhost] = ghostedPair((p) => new THREE.MeshBasicMaterial(p));
 
 	const group = new THREE.Group();
 	const mesh = (geo: THREE.BufferGeometry, mat: THREE.Material, order: number) => {
 		const m = new THREE.Mesh(geo, mat);
 		m.renderOrder = order;
 		group.add(m);
+		return m;
 	};
 	const placeGeo = places.build();
 	const glowGeo = glow.build();
@@ -495,7 +506,15 @@ function buildFloor(floor: Floor): FloorMesh {
 	mesh(glowGeo, glowMat, 2);
 	mesh(placeGeo, placeGhost, 3);
 	mesh(glowGeo, glowGhost, 3);
-	return { group, floor };
+	const shaftGeo = shafts.build();
+	const shaftGlowGeo = shaftGlow.build();
+	const shaftParts = [
+		mesh(shaftGeo, placeMat, 2),
+		mesh(shaftGeo, placeGhost, 3),
+		mesh(shaftGlowGeo, glowMat, 2),
+		mesh(shaftGlowGeo, glowGhost, 3)
+	];
+	return { group, floor, shaftParts };
 }
 
 // ── Route ribbon ────────────────────────────────────────────────────────────
@@ -689,6 +708,77 @@ export function createHollowScene(container: HTMLElement, opts: SceneOptions): H
 	const routeLevels = new Map<number, THREE.Group>();
 	const rideGroup = new THREE.Group();
 	scene.add(rideGroup);
+
+	// ── Shaft columns (all-levels view) ─────────────────────────────────────
+	// Shafts are the only places at the same spot on every level. In the stacked view each
+	// one is drawn as a single solid column from the bottom level to the top, in the same
+	// blocky style and colour as its landings, which are hidden meanwhile.
+	const shaftColumns = new THREE.Group();
+	shaftColumns.visible = false;
+	scene.add(shaftColumns);
+	const buildShaftColumns = () => {
+		if (shaftColumns.children.length) return;
+		const levels = [...meshes.values()].map((m) => m.floor).sort((a, b) => a.index - b.index);
+		if (levels.length < LEVELS.length) return;
+		const body = new Builder();
+		const glow = new Builder();
+		SHAFTS.forEach((info, s) => {
+			const g = levels[0].shaftGates[s];
+			if (!g) return;
+			const { wall, roof, well } = shaftColors(s);
+			const bottom = stackY(LEVELS.length - 1);
+			// The sealed Ascent carries on above the Crown, toward the surface.
+			const top = stackY(0) + SHAFT_H + (info.status === 'sealed' ? 8 : 0);
+			const inside = (x: number, y: number) =>
+				x >= g.x && x < g.x + g.w && y >= g.y && y < g.y + g.h;
+			for (let y = g.y; y < g.y + g.h; y++)
+				for (let x = g.x; x < g.x + g.w; x++) {
+					const x0 = wx(x);
+					const z0 = wz(y);
+					const seed = (y * W + x) * 7 + s * 7919;
+					for (const [d, dx, dy] of SIDES) {
+						if (inside(x + dx, y + dy)) continue;
+						// One face per block, so the column reads like the landings it replaces.
+						for (let k = 0; bottom + k < top; k++) {
+							const y0 = bottom + k;
+							const y1 = Math.min(y0 + 1, top);
+							body.side(
+								d,
+								x0,
+								z0,
+								x0 + 1,
+								z0 + 1,
+								y0,
+								y1,
+								shade(wall, seed + k * 31 + d.charCodeAt(0))
+							);
+						}
+					}
+					body.top(x0, z0, x0 + 1, z0 + 1, top, shade(roof, seed, 0.08));
+					body.top(x0, z0, x0 + 1, z0 + 1, bottom, wall.clone().multiplyScalar(0.6), true);
+				}
+			glow.top(
+				wx(g.x) + 0.7,
+				wz(g.y) + 0.7,
+				wx(g.x + g.w) - 0.7,
+				wz(g.y + g.h) - 0.7,
+				top + 0.03,
+				well
+			);
+		});
+		// Always solid: the columns are the backbone of the stacked view, so unlike buildings
+		// they don't turn see-through in front of tunnels.
+		const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+		const glowMat = new THREE.MeshBasicMaterial({ vertexColors: true });
+		for (const [geo, m] of [
+			[body.build(), mat],
+			[glow.build(), glowMat]
+		] as const) {
+			const mesh = new THREE.Mesh(geo, m);
+			mesh.renderOrder = 2;
+			shaftColumns.add(mesh);
+		}
+	};
 	const routeMesh = (b: Builder, opacity: number, onTop: boolean, order: number) => {
 		const mat = new THREE.MeshBasicMaterial({
 			vertexColors: true,
@@ -884,6 +974,8 @@ export function createHollowScene(container: HTMLElement, opts: SceneOptions): H
 			g.position.y = overview ? stackY(level) : overlay.position.y;
 		}
 		rideGroup.visible = overview;
+		shaftColumns.visible = overview;
+		for (const fm of meshes.values()) for (const part of fm.shaftParts) part.visible = !overview;
 
 		for (const p of pins) placePin(p);
 		renderer.render(scene, camera);
@@ -1019,6 +1111,7 @@ export function createHollowScene(container: HTMLElement, opts: SceneOptions): H
 						fm.group.position.y = stackY(i);
 					}
 					overlay.visible = false;
+					buildShaftColumns();
 					// Pulled back and lifted a touch so the top levels clear the search/directions panel.
 					fly = {
 						x: 0,
