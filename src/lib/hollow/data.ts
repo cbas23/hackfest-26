@@ -24,7 +24,7 @@ export interface Level {
 	air: number;
 	heat: number;
 	description: string;
-	/** Share of the 250×200 grid the city spans. */
+	/** Share of the 500×400 grid the city spans. */
 	cityScale: number;
 	features: FeatureSpec[];
 	facilities: FacilitySpec[];
@@ -38,8 +38,8 @@ export interface ShaftInfo {
 
 /** Generator settings shared by every floor. */
 export const FLOOR_CONFIG = {
-	width: 250,
-	height: 200,
+	width: 500,
+	height: 400,
 	gates: 6,
 	interiorGateChance: 0.6,
 	streetDensity: 0.25,

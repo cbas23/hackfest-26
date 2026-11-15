@@ -17,7 +17,7 @@
 		type Route,
 		type RouteOptions
 	} from '#lib/hollow/nav.js';
-	import { createHollowScene, isDrawn, type HollowScene, type Pick } from '#lib/hollow/scene.js';
+	import { createHollowMap, type HollowMap, type Pick } from '#lib/hollow/hollowMap.js';
 	import { facilityStatus, STATUS_INFO, type Status } from '#lib/hollow/sensors.js';
 	import { assessImpact } from '#lib/hollow/impact.js';
 	import { createHollow, type Floor } from '#lib/hollow/world.js';
@@ -32,7 +32,7 @@
 	};
 
 	let container: HTMLDivElement;
-	let scene = $state.raw<HollowScene | undefined>();
+	let scene = $state.raw<HollowMap | undefined>();
 
 	let levelIndex = $state(0);
 	/** Floors generated so far (they're dug in the background after load). */
@@ -335,7 +335,7 @@
 		}
 		for (const p of placesFor(floor)) {
 			// Landmarks get pins; housing blocks (hundreds per level) don't.
-			if (p.kind === 'block' || !isDrawn(floor, p.room)) continue;
+			if (p.kind === 'block') continue;
 			const r = p.room;
 			out.push({
 				key: p.key,
@@ -465,7 +465,7 @@
 	}
 
 	onMount(() => {
-		const s = createHollowScene(container, {
+		const s = createHollowMap(container, {
 			onHover: (p) => {
 				const r = overview ? null : (p?.room ?? null);
 				if (r !== hover) {

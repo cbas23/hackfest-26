@@ -6,6 +6,8 @@ import {
 	type TunnelMap
 } from '#lib/tunnels/generate.js';
 import { FLOOR_CONFIG, LEVELS, SHAFTS, type FacilitySpec } from './data.js';
+import { decodeFloor, type BakedHollow } from './bake.js';
+import baked from './floors.json';
 
 export interface Floor {
 	index: number;
@@ -25,7 +27,7 @@ export interface Hollow {
 	seed: number;
 	/** Gate positions shared by every floor, one per shaft. */
 	gateSpecs: GateSpec[];
-	/** Floors are generated lazily — ~200 ms each at 250×200. */
+	/** Floors load lazily: decoded from the baked data, or generated (~600 ms each) if it's stale. */
 	floor(index: number): Floor;
 	isReady(index: number): boolean;
 }
@@ -67,9 +69,9 @@ function placeFacilities(map: TunnelMap, specs: FacilitySpec[], seed: number) {
 			const c = centre(r);
 			const spread = chosen.length
 				? Math.min(...chosen.map((o) => Math.hypot(o.x - c.x, o.y - c.y)))
-				: 60 - Math.hypot(c.x - cx, c.y - cy) * 0.5;
+				: 120 - Math.hypot(c.x - cx, c.y - cy) * 0.5;
 			// Cap the spread so picks don't all run to the rim; noise breaks ties.
-			const score = Math.min(spread, 45) + hash01(r.id, seed) * 12 + r.w * r.h * 0.2;
+			const score = Math.min(spread, 90) + hash01(r.id, seed) * 12 + r.w * r.h * 0.2;
 			if (score > bestScore) {
 				bestScore = score;
 				best = r;
@@ -82,9 +84,11 @@ function placeFacilities(map: TunnelMap, specs: FacilitySpec[], seed: number) {
 	return out;
 }
 
-export function createHollow(seed: number): Hollow {
-	// The Crown is generated first; its random gates become the fixed shaft positions
-	// that every other floor is built around. Retry until all six shafts fit.
+/**
+ * Generate the Crown. Its random gates become the fixed shaft positions that every other
+ * floor is built around, so retry until all six shafts fit.
+ */
+function generateCrown(seed: number) {
 	let crown: TunnelMap | undefined;
 	for (let attempt = 0; attempt < 20; attempt++) {
 		const m = generateTunnelMap({
@@ -101,6 +105,50 @@ export function createHollow(seed: number): Hollow {
 	}
 	const crownGates = crown!.rooms.filter((r) => r.kind === 'gate').slice(0, SHAFTS.length);
 	const gateSpecs: GateSpec[] = crownGates.map((g) => ({ x: g.x, y: g.y, door: sideOf(g) }));
+	return { crown: crown!, gateSpecs };
+}
+
+const generateFloor = (seed: number, index: number, gateSpecs: GateSpec[]) =>
+	generateTunnelMap({
+		...FLOOR_CONFIG,
+		seed: floorSeed(seed, index),
+		gates: gateSpecs,
+		cityScale: LEVELS[index].cityScale,
+		features: LEVELS[index].features
+	});
+
+/** Generate every floor from scratch (used to bake `floors.json`). */
+export function generateHollowMaps(seed: number) {
+	const { crown, gateSpecs } = generateCrown(seed);
+	const maps = [crown, ...LEVELS.slice(1).map((l) => generateFloor(seed, l.index, gateSpecs))];
+	return { gateSpecs, maps };
+}
+
+/** The baked floors, if they were made with this seed and the current generator settings. */
+function bakedFor(seed: number): BakedHollow | null {
+	const b = baked as BakedHollow;
+	const ok =
+		b.seed === seed &&
+		b.width === FLOOR_CONFIG.width &&
+		b.height === FLOOR_CONFIG.height &&
+		b.floors.length === LEVELS.length;
+	return ok ? b : null;
+}
+
+export function createHollow(seed: number): Hollow {
+	const stored = bakedFor(seed);
+	let generated: { crown: TunnelMap; gateSpecs: GateSpec[] } | null = null;
+	if (!stored) {
+		console.warn('[hollow] baked floors are stale; generating. Run `bun run bake:hollow`.');
+		generated = generateCrown(seed);
+	}
+	const gateSpecs = stored ? stored.gateSpecs : generated!.gateSpecs;
+	const loadMap = (index: number): TunnelMap =>
+		stored
+			? decodeFloor(stored, index)
+			: index === 0
+				? generated!.crown
+				: generateFloor(seed, index, gateSpecs);
 
 	const cache = new Map<number, Floor>();
 
@@ -127,7 +175,7 @@ export function createHollow(seed: number): Hollow {
 		return { index, map, shaftGates, lit, residents, litShare, facilities };
 	};
 
-	cache.set(0, build(0, crown!));
+	cache.set(0, build(0, loadMap(0)));
 
 	return {
 		seed,
@@ -136,15 +184,7 @@ export function createHollow(seed: number): Hollow {
 		floor(index) {
 			let f = cache.get(index);
 			if (!f) {
-				const level = LEVELS[index];
-				const map = generateTunnelMap({
-					...FLOOR_CONFIG,
-					seed: floorSeed(seed, index),
-					gates: gateSpecs,
-					cityScale: level.cityScale,
-					features: level.features
-				});
-				f = build(index, map);
+				f = build(index, loadMap(index));
 				cache.set(index, f);
 			}
 			return f;
