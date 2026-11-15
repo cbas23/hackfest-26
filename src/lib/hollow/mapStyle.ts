@@ -25,7 +25,6 @@ function paletteFor(index: number) {
 		placeRoof: mix('#5f6694', '#695c7e', warm),
 		blockWallDark: mix('#4a4e72', '#4f465d', warm),
 		blockRoofDark: mix('#383c5c', '#3d3549', warm),
-		door: new THREE.Color('#e6ecff'),
 		farmRoof: new THREE.Color('#1f6b67'),
 		farmWall: new THREE.Color('#2a7d76'),
 		crop: new THREE.Color('#38a897'),
@@ -146,7 +145,7 @@ export function floorStyle(floor: Floor): LayerStyle {
 		room(r): RoomLook {
 			const height = roomHeight(floor, r);
 			const facility = floor.facilities.get(r.id);
-			const base = { height, door: c.door };
+			const base = { height, door: null };
 			if (facility) {
 				const accent = new THREE.Color(FACILITY_INFO[facility.kind].color);
 				return {

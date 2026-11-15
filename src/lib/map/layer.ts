@@ -300,6 +300,8 @@ export class Layer implements MapLayer {
 						? 1 + Math.floor((roll / sinkChance) * maxSink)
 						: 0;
 			}
+			// Keep at least one block of the room level with the tunnel so the door stays connected.
+			sink = Math.max(0, Math.min(sink, Math.floor(look.height) - 1));
 			this.sinks[r.id] = sink;
 			const { solid, glow } = into(look.part ?? '');
 			solid.lift = glow.lift = -sink;
