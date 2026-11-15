@@ -1,4 +1,5 @@
-export type TileType = 'void' | 'rock' | 'road' | 'room' | 'gate';
+export type TileType = 'void' | 'rock' | 'road' | 'room' | 'gate' | FeatureKind;
+export type FeatureKind = 'farm' | 'plant';
 
 export interface Point {
 	x: number;
@@ -9,7 +10,7 @@ export type Side = 'n' | 'e' | 's' | 'w';
 
 export interface Room {
 	id: number;
-	kind: 'room' | 'gate';
+	kind: 'room' | 'gate' | FeatureKind;
 	x: number;
 	y: number;
 	w: number;
@@ -50,10 +51,21 @@ export interface GenerateOptions {
 	gates?: number | GateSpec[];
 	/** 0..1 — chance a random gate is placed inside the city (a shaft) rather than on the edge. */
 	interiorGateChance?: number;
+	/** 0..1 — share of the grid the city itself spans. Below 1 leaves open earth around it for features. */
+	cityScale?: number;
+	/** Large facilities (farms, plants) dug into the city's border, each reached by one tunnel. */
+	features?: FeatureSpec[];
 	/** 0..1 — how much of the city is cut by side streets. */
 	streetDensity?: number;
 	/** 0..1 — how densely rooms pack the space between streets. */
 	roomDensity?: number;
+}
+
+export interface FeatureSpec {
+	kind: FeatureKind;
+	count: number;
+	/** Inclusive side-length range, e.g. [10, 20]. */
+	size: [number, number];
 }
 
 const DIRS: readonly Point[] = [
@@ -139,6 +151,8 @@ export function generateTunnelMap(opts: GenerateOptions = {}): TunnelMap {
 	const interiorGateChance = opts.interiorGateChance ?? 0.35;
 	const streetDensity = opts.streetDensity ?? 0.5;
 	const roomDensity = opts.roomDensity ?? 0.8;
+	const cityScale = opts.cityScale ?? 1;
+	const features = opts.features ?? [];
 	const rand = mulberry32(seed);
 	const randInt = (lo: number, hi: number) => lo + Math.floor(rand() * (hi - lo + 1));
 
@@ -153,8 +167,8 @@ export function generateTunnelMap(opts: GenerateOptions = {}): TunnelMap {
 	// ── 1. Organic, roughly circular city boundary ──────────────────────────
 	// Radius wobbles with a few random harmonics, then cellular-automata smoothing
 	// roughens the edge into something that looks dug rather than drawn.
-	const rx = width / 2 - 3;
-	const ry = height / 2 - 3;
+	const rx = (width / 2 - 3) * cityScale;
+	const ry = (height / 2 - 3) * cityScale;
 	const harmonics = Array.from({ length: 5 }, (_, i) => ({
 		k: i + 2,
 		amp: (0.12 / (i + 1)) * (0.5 + rand()),
@@ -303,6 +317,69 @@ export function generateTunnelMap(opts: GenerateOptions = {}): TunnelMap {
 		}
 	}
 
+	// ── 2b. Border facilities: big rectangles straddling the city edge ──────
+	// Each sits half in, half out of the boundary, door facing the city centre.
+	const facilities: Room[] = [];
+	const blocked = (x: number, y: number, w: number, h: number, gap: number) => {
+		for (let yy = y - gap; yy < y + h + gap; yy++)
+			for (let xx = x - gap; xx < x + w + gap; xx++) {
+				const t = at(xx, yy);
+				if (t === 'gate' || t === 'farm' || t === 'plant') return true;
+			}
+		return false;
+	};
+	const featureQueue = features.flatMap((f) => Array.from({ length: f.count }, () => f));
+	const featureAngle = rand() * Math.PI * 2;
+	featureQueue.forEach((f, i) => {
+		for (let tries = 0; tries < 40; tries++) {
+			const theta =
+				featureAngle +
+				(i / featureQueue.length) * Math.PI * 2 +
+				(rand() - 0.5) * (0.4 + tries * 0.15);
+			const c = Math.cos(theta);
+			const s = Math.sin(theta);
+			const w = randInt(f.size[0], f.size[1]);
+			const h = randInt(f.size[0], f.size[1]);
+			let edge: Point | null = null;
+			const scale = Math.max(rx, ry);
+			for (let t = 0; t < scale * 2; t += 0.5) {
+				const x = Math.round(cx + (c * t * rx) / scale);
+				const y = Math.round(cy + (s * t * ry) / scale);
+				if (!inside(x, y)) break;
+				if (mask[y][x]) edge = { x, y };
+			}
+			if (!edge) continue;
+			// Push the rect outward so roughly a third of it overlaps the city.
+			const horizontal = Math.abs(c) >= Math.abs(s);
+			const inset = Math.floor((horizontal ? w : h) / 3);
+			let x = horizontal
+				? c > 0
+					? edge.x - inset
+					: edge.x - w + 1 + inset
+				: edge.x - Math.floor(w / 2);
+			let y = horizontal
+				? edge.y - Math.floor(h / 2)
+				: s > 0
+					? edge.y - inset
+					: edge.y - h + 1 + inset;
+			x = Math.max(2, Math.min(width - 2 - w, x));
+			y = Math.max(2, Math.min(height - 2 - h, y));
+			if (blocked(x, y, w, h, 3)) continue;
+
+			const side: Side = horizontal ? (c > 0 ? 'w' : 'e') : s > 0 ? 'n' : 's';
+			const d = SIDE_DIR[side];
+			const door: Point =
+				d.x !== 0
+					? { x: d.x > 0 ? x + w - 1 : x, y: y + Math.floor(h / 2) }
+					: { x: x + Math.floor(w / 2), y: d.y > 0 ? y + h - 1 : y };
+			const access = { x: door.x + d.x, y: door.y + d.y };
+			if (!inside(access.x, access.y) || at(access.x, access.y) === 'gate') continue;
+			if (grid[access.y][access.x] === 'void') grid[access.y][access.x] = 'rock';
+			facilities.push(placeRoom({ kind: f.kind, x, y, w, h, door, access }));
+			break;
+		}
+	});
+
 	// ── 3. Main streets via direction-aware Dijkstra ────────────────────────
 	// Turning is expensive and existing roads are cheap, so paths come out as long
 	// straight runs that merge into each other — like planned avenues.
@@ -393,14 +470,14 @@ export function generateTunnelMap(opts: GenerateOptions = {}): TunnelMap {
 		carvePath(ringPoints[i], ringPoints[(i + 1) % ringPoints.length]);
 
 	// Avenues from the plaza to every gate (digging through earth if a gate is outside the city).
-	for (const g of gates) carvePath(hub, g.access, true);
+	for (const g of [...gates, ...facilities]) carvePath(hub, g.access, true);
 
 	// ── 4. Side streets: straight branches with occasional turns ────────────
 	const isRoad = (x: number, y: number) => at(x, y) === 'road';
 	const cityArea = mask.flat().filter(Boolean).length;
 	const targetRoads = cityArea * (0.12 + streetDensity * 0.2);
 	let roadCount = grid.flat().filter((t) => t === 'road').length;
-	for (let attempt = 0; attempt < 4000 && roadCount < targetRoads; attempt++) {
+	for (let attempt = 0; attempt < cityArea && roadCount < targetRoads; attempt++) {
 		const sx = randInt(1, width - 2);
 		const sy = randInt(1, height - 2);
 		if (!isRoad(sx, sy)) continue;
@@ -454,7 +531,7 @@ export function generateTunnelMap(opts: GenerateOptions = {}): TunnelMap {
 		for (let yy = y - 1; yy <= y + h; yy++)
 			for (let xx = x - 1; xx <= x + w; xx++) {
 				const t = at(xx, yy);
-				if (t === 'room' || t === 'gate') return false;
+				if (t !== 'rock' && t !== 'road' && t !== 'void') return false;
 			}
 		return true;
 	};
