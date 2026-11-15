@@ -60,6 +60,8 @@ export interface HollowScene {
 	/** Route polylines for the shown floor, plus the slice for the active step. */
 	setRoute(paths: Point[][], active: Point[] | null): void;
 	setPins(pins: Pin[]): void;
+	/** Tint rooms on the shown floor (impact assessment); an empty list clears it. */
+	setImpact(rooms: { room: Room; color: string }[]): void;
 	flyTo(x: number, y: number, opts?: { distance?: number; heading?: Point; tilt?: number }): void;
 	fitBounds(minX: number, minY: number, maxX: number, maxY: number): void;
 	zoomBy(factor: number): void;
@@ -616,6 +618,10 @@ export function createHollowScene(container: HTMLElement, opts: SceneOptions): H
 		o.visible = true;
 	};
 
+	// ── Impact tint ─────────────────────────────────────────────────────────
+	const impactGroup = new THREE.Group();
+	scene.add(impactGroup);
+
 	// ── Picking ─────────────────────────────────────────────────────────────
 	const raycaster = new THREE.Raycaster();
 	const ndc = new THREE.Vector2();
@@ -828,6 +834,27 @@ export function createHollowScene(container: HTMLElement, opts: SceneOptions): H
 		setPins(next) {
 			pins = next;
 			for (const p of pins) placePin(p);
+		},
+		setImpact(rooms) {
+			for (const c of [...impactGroup.children]) {
+				impactGroup.remove(c);
+				disposeTree(c);
+			}
+			if (!rooms.length || !current) return;
+			const b = new Builder();
+			for (const { room: r, color } of rooms) {
+				const y = roomHeight(current, r) + 0.06;
+				b.top(wx(r.x), wz(r.y), wx(r.x) + r.w, wz(r.y) + r.h, y, new THREE.Color(color));
+			}
+			const mat = new THREE.MeshBasicMaterial({
+				vertexColors: true,
+				transparent: true,
+				opacity: 0.7,
+				depthWrite: false
+			});
+			const mesh = new THREE.Mesh(b.build(), mat);
+			mesh.renderOrder = 5;
+			impactGroup.add(mesh);
 		},
 		flyTo(x, y, o = {}) {
 			fly = {
