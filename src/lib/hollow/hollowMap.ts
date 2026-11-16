@@ -37,6 +37,26 @@ const stackY = (level: number) => -(LEVELS[level].depth - LEVELS[0].depth) * STA
 const STACK_MID = stackY(LEVELS.length - 1) * 0.3;
 /** Height the route ribbon rides at: on top of the (solid) tunnels. */
 const ROUTE_Y = TUNNEL_H;
+/** How far the route's cyan shell stands proud of the tunnel faces, in blocks. */
+const ROUTE_PAD = 0.02;
+/** Thickness of the white inverted-hull border around the painted tunnel, in blocks. */
+const ROUTE_BORDER = 0.3;
+/**
+ * Smallest on-screen size of the route, in CSS pixels. Zoomed out (and in the all-levels
+ * view) a tunnel is only a pixel or two wide, so the route grows past it to stay readable.
+ */
+const ROUTE_MIN_PX = 7;
+const ROUTE_BORDER_MIN_PX = 3;
+/** Redraw the route when its on-screen scale drifts by more than this fraction. */
+const ROUTE_RESCALE = 0.12;
+/**
+ * Render order of the route. It ignores depth (nothing covers it), with the white hull
+ * first and the cyan shell over it, so the white only shows outside the cyan silhouette.
+ * It still writes depth, so the raised end buildings drawn after it can cover it.
+ */
+const ROUTE_ORDER = 5;
+/** Tint multiplied into the tunnels while a route is shown, for contrast with the cyan. */
+const ROUTE_DIM = '#737892';
 
 export const layerId = (level: number) => `floor-${level}`;
 const levelOf = (id: string) => Number(id.slice('floor-'.length));
@@ -122,6 +142,7 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 			visible: false
 		});
 		// Things that ride with levels may name this one before it existed.
+		layer.setTunnelTint(lastRoute ? ROUTE_DIM : null);
 		if (lastRoute?.legs.some((l) => l.level === floor.index)) self.setRoute(lastRoute);
 		return layer;
 	};
@@ -244,6 +265,42 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 	let lastRoute: RouteDraw | null = null;
 	let routeParts: OverlayHandle[] = [];
 	let rideParts: OverlayHandle[] = [];
+	let raisedLayers: MapLayer[] = [];
+	/** World-per-pixel the route was last drawn for. */
+	let routeScaleAt = 0;
+	/** Tiles per CSS pixel at the camera's focus. */
+	const worldPerPixel = () => {
+		const { camera, renderer } = map.three;
+		const h = renderer.domElement.clientHeight || 1;
+		const fov = (camera.fov * Math.PI) / 180;
+		return (2 * map.camera.view.distance * Math.tan(fov / 2)) / h;
+	};
+	/** The route's two passes: the white inverted hull, then the cyan shell over it. */
+	const shellAndHull = (
+		layer: string | null,
+		hull: BoxesOverlay['boxes'],
+		shell: BoxesOverlay['boxes'],
+		merge = true
+	) => {
+		const base = {
+			type: 'boxes',
+			layer,
+			lit: false,
+			merge,
+			onTop: true,
+			depthWrite: true
+		} as const;
+		return [
+			map.addOverlay({ ...base, boxes: hull, backSide: true, order: ROUTE_ORDER }),
+			map.addOverlay({ ...base, boxes: shell, order: ROUTE_ORDER + 1 })
+		];
+	};
+	// Keep the route's on-screen width as the camera zooms.
+	map.on('view', () => {
+		if (!lastRoute || !routeScaleAt) return;
+		const px = worldPerPixel();
+		if (Math.abs(px / routeScaleAt - 1) > ROUTE_RESCALE) self.setRoute(lastRoute);
+	});
 
 	// ── Highlights ──────────────────────────────────────────────────────────
 	const outline = (color: string, opacity: number) => {
@@ -352,50 +409,130 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 			for (const o of [...routeParts, ...rideParts]) o.remove();
 			routeParts = [];
 			rideParts = [];
+			for (const l of raisedLayers) l.raise([]);
+			raisedLayers = [];
 			lastRoute = route;
+			// Dim every level's tunnels while a route is up, so the cyan stands out.
+			for (const l of map.layers()) l.setTunnelTint(route ? ROUTE_DIM : null);
 			if (!route) return;
-			const casing = '#1667c9';
+			const border = '#ffffff';
 			const core = '#38d8f2';
+			// Widths in tiles: the tunnel itself up close, a fixed pixel size when far away.
+			const px = worldPerPixel();
+			routeScaleAt = px;
+			const spread = Math.max(0, (ROUTE_MIN_PX * px - 1) / 2);
+			const rim = Math.max(ROUTE_BORDER, ROUTE_BORDER_MIN_PX * px);
 			const byLevel = new Map<number, Point[][]>();
 			for (const leg of route.legs)
 				byLevel.set(leg.level, [...(byLevel.get(leg.level) ?? []), leg.path]);
-			for (const [level, paths] of byLevel) {
+			for (const [level, legPaths] of byLevel) {
 				const layer = map.layer(layerId(level));
 				if (!layer) continue;
-				const base = { type: 'path', layer: layer.id, paths } as const;
-				// The see-through pass keeps the line readable past buildings; the solid passes
-				// sit on the tunnel tops. Legs ride with their level's layer.
+				// Only the tunnel tiles get painted; the door tiles at each end sit inside rooms.
+				const { grid, roomAt, rooms } = layer.map;
+				// The route is drawn over everything; only the buildings each leg starts and ends
+				// at (its door tiles) are drawn again after it, so they alone can cover it.
+				const ends = new Set<Room>();
+				for (const p of legPaths)
+					for (const t of [p[0], p[p.length - 1]]) {
+						const r = rooms[roomAt[t.y]?.[t.x] ?? -1];
+						if (r) ends.add(r);
+					}
+				layer.raise([...ends], ROUTE_ORDER + 2);
+				raisedLayers.push(layer);
+				const paths = legPaths
+					.map((p) => p.filter(({ x, y }) => grid[y]?.[x] === 'road'))
+					.filter((p) => p.length > 0);
+				const tiles = new Map<number, Point>();
+				for (const p of paths) for (const t of p) tiles.set(t.y * W + t.x, t);
+				// Legs ride with their level's layer. The cyan shell wraps the route's tunnel
+				// blocks a hair larger than the tunnel so it covers the tunnel's own faces. It is
+				// unlit with a cyan underside, so no face is shaded darker. The white border is
+				// an inverted hull: the same blocks grown on every side, drawn back faces only,
+				// so the white shows only where it sticks out past the cyan silhouette (drawn in
+				// order rather than by depth, since the route ignores depth). Each tile
+				// only grows on its open sides and faces between tiles are merged away, so the
+				// hull is one solid with no inner walls poking up through the cyan roof.
+				// When zoomed out, both grow sideways past the tunnel by `spread`.
+				const has = (x: number, y: number) => tiles.has(y * W + x);
+				const grow = (side: number, by: number, color: string, open = false) =>
+					[...tiles.values()].map((t) => {
+						const o = (dx: number, dy: number) => (open && has(t.x + dx, t.y + dy) ? 0 : side + by);
+						return {
+							x: t.x - o(-1, 0),
+							y: t.y - o(0, -1),
+							w: 1 + o(-1, 0) + o(1, 0),
+							h: 1 + o(0, -1) + o(0, 1),
+							z0: -by,
+							z1: ROUTE_Y + by,
+							color,
+							roof: color,
+							bottom: color
+						};
+					});
 				routeParts.push(
-					map.addOverlay({
-						...base,
-						width: 0.5,
-						z: ROUTE_Y + 0.05,
-						color: core,
-						opacity: 0.8,
-						onTop: true,
-						order: 9
-					}),
-					map.addOverlay({ ...base, width: 0.86, z: ROUTE_Y + 0.07, color: casing, order: 6 }),
-					map.addOverlay({ ...base, width: 0.56, z: ROUTE_Y + 0.09, color: core, order: 7 })
+					...shellAndHull(layer.id, grow(spread, rim, border, true), grow(spread, ROUTE_PAD, core))
 				);
 			}
 			// Shaft rides: vertical bars between levels, only shown when the levels are stacked.
+			// Same look as the legs: a cyan bar as wide as the route, outlined in white.
 			for (const r of route.rides) {
 				const top = stackY(Math.min(r.from, r.to)) + ROUTE_Y;
 				const bottom = stackY(Math.max(r.from, r.to)) + ROUTE_Y;
-				rideParts.push(
-					map.addOverlay({
-						type: 'boxes',
-						boxes: [
-							{ x: r.x - 0.35, y: r.y - 0.35, w: 0.7, h: 0.7, z0: bottom, z1: top, color: core }
-						],
-						lit: false,
-						opacity: 0.85,
-						onTop: true,
-						order: 9,
-						visible: overview
-					})
-				);
+				const bar = (half: number, color: string) => [
+					{
+						x: r.x - half,
+						y: r.y - half,
+						w: half * 2,
+						h: half * 2,
+						z0: bottom - (half - 0.5),
+						z1: top + (half - 0.5),
+						color,
+						roof: color,
+						bottom: color
+					}
+				];
+				const half = 0.5 + spread;
+				rideParts.push(...shellAndHull(null, bar(half + rim, border), bar(half, core)));
+				// The legs stop at the tile outside the landing's door, but the bar stands at the
+				// shaft's centre. In this view the landings give way to the shaft columns, so
+				// bridge the gap on both end levels: tunnel tile → door → shaft centre.
+				for (const level of [r.from, r.to]) {
+					const layer = map.layer(layerId(level));
+					const gate = layer?.map.rooms[layer.map.roomAt[Math.floor(r.y)]?.[Math.floor(r.x)] ?? -1];
+					if (!layer || !gate) continue;
+					const a = { x: gate.access.x + 0.5, y: gate.access.y + 0.5 };
+					const d = { x: gate.door.x + 0.5, y: gate.door.y + 0.5 };
+					// Turn where the door's line meets the centre's cross line, then go sideways.
+					const alongX = gate.access.y === gate.door.y;
+					const turn = alongX ? { x: r.x, y: d.y } : { x: d.x, y: r.y };
+					const pts = [a, d, turn, { x: r.x, y: r.y }];
+					const link = (hw: number, by: number, color: string) =>
+						pts.slice(1).map((q, i) => {
+							const p = pts[i];
+							const x0 = Math.min(p.x, q.x) - hw;
+							const y0 = Math.min(p.y, q.y) - hw;
+							return {
+								x: x0,
+								y: y0,
+								w: Math.max(p.x, q.x) + hw - x0,
+								h: Math.max(p.y, q.y) + hw - y0,
+								z0: -by,
+								z1: ROUTE_Y + by,
+								color,
+								roof: color,
+								bottom: color
+							};
+						});
+					rideParts.push(
+						...shellAndHull(
+							layer.id,
+							link(half + rim, rim, border),
+							link(half, ROUTE_PAD, core),
+							false
+						)
+					);
+				}
 			}
 		},
 		setOverview(on, floors) {

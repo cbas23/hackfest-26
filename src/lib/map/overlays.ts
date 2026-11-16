@@ -64,6 +64,19 @@ export interface BoxesOverlay extends Base {
 	/** Build from 1×1×1 blocks with brightness jitter, like the map itself. */
 	blocky?: boolean;
 	seed?: number;
+	/**
+	 * Draw only the inner (back) faces. Boxes grown past another shape this way form an
+	 * inverted-hull outline: the hull only shows where it sticks out past that shape's
+	 * silhouette.
+	 */
+	backSide?: boolean;
+	/**
+	 * Skip side faces that sit against another box of this overlay (tested just outside the
+	 * face's centre), so boxes that touch or overlap read as one solid.
+	 */
+	merge?: boolean;
+	/** Write depth even when transparent or on top (default: only when opaque). */
+	depthWrite?: boolean;
 }
 
 /** Any three.js object, positioned in world space (see MapView.toWorld). */
@@ -137,7 +150,34 @@ function boxesGeometry(s: BoxesOverlay, space: Space) {
 		const roof = toColor(box.roof ?? box.color);
 		const bottom = box.bottom ? toColor(box.bottom) : wall.clone().multiplyScalar(0.6);
 		if (!s.blocky) {
-			b.box(wx(box.x), wz(box.y), wx(box.x + box.w), wz(box.y + box.h), box.z0, box.z1, wall, roof);
+			const x0 = wx(box.x);
+			const z0 = wz(box.y);
+			const x1 = wx(box.x + box.w);
+			const z1 = wz(box.y + box.h);
+			const cx = box.x + box.w / 2;
+			const cy = box.y + box.h / 2;
+			const cz = (box.z0 + box.z1) / 2;
+			const e = 1e-3;
+			const covered = (x: number, y: number) =>
+				s.boxes.some(
+					(o, k) =>
+						k !== n &&
+						x > o.x &&
+						x < o.x + o.w &&
+						y > o.y &&
+						y < o.y + o.h &&
+						cz > o.z0 &&
+						cz < o.z1
+				);
+			const out: Record<'n' | 's' | 'w' | 'e', [number, number]> = {
+				n: [cx, box.y - e],
+				s: [cx, box.y + box.h + e],
+				w: [box.x - e, cy],
+				e: [box.x + box.w + e, cy]
+			};
+			for (const d of ['n', 's', 'w', 'e'] as const)
+				if (!s.merge || !covered(...out[d])) b.side(d, x0, z0, x1, z1, box.z0, box.z1, wall);
+			b.top(x0, z0, x1, z1, box.z1, roof);
 			b.top(wx(box.x), wz(box.y), wx(box.x + box.w), wz(box.y + box.h), box.z0, bottom, true);
 			return;
 		}
@@ -225,7 +265,8 @@ function draw(root: THREE.Group, s: OverlaySpec, space: Space) {
 			transparent,
 			opacity,
 			depthTest: !s.onTop,
-			depthWrite: !transparent
+			depthWrite: s.depthWrite ?? !transparent,
+			side: s.backSide ? THREE.BackSide : THREE.FrontSide
 		};
 		const mat =
 			(s.lit ?? true) ? new THREE.MeshLambertMaterial(params) : new THREE.MeshBasicMaterial(params);

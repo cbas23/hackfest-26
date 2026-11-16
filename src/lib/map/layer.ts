@@ -115,6 +115,14 @@ export interface MapLayer {
 	setStyle(style: LayerStyle): void;
 	/** Show or hide a named part (see RoomLook.part). */
 	setPartVisible(part: string, visible: boolean): void;
+	/**
+	 * Draw these rooms a second time, fully opaque and in the transparent pass at `order`
+	 * (default 8), so they cover overlays drawn before them even when those overlays ignore
+	 * depth. Replaces the previous set; [] clears it. Raised rooms follow part visibility.
+	 */
+	raise(rooms: Room[], order?: number): void;
+	/** Multiply the tunnels' colours by `color` (e.g. a grey to dim them); null resets. */
+	setTunnelTint(color: Color | null): void;
 	/** The resolved look of a room, or null when it isn't drawn. */
 	lookOf(room: Room): RoomLook | null;
 	/** Height of a room's roof above the layer floor in blocks (0 when not drawn). */
@@ -158,7 +166,12 @@ function ghostedPair(
 export class Layer implements MapLayer {
 	readonly object = new THREE.Group();
 	private body = new THREE.Group();
+	private raisedBody = new THREE.Group();
+	private raised: { rooms: Room[]; order: number } = { rooms: [], order: 8 };
 	private parts = new Map<string, THREE.Object3D[]>();
+	private tunnelMat: THREE.MeshLambertMaterial | null = null;
+	private tunnelTint: Color | null = null;
+	private raisedParts = new Map<string, THREE.Object3D[]>();
 	private hiddenParts = new Set<string>();
 	private looks: (RoomLook | null)[] = [];
 	private sinks: number[] = [];
@@ -171,7 +184,7 @@ export class Layer implements MapLayer {
 		private space: Space
 	) {
 		this.object.name = `layer:${id}`;
-		this.object.add(this.body);
+		this.object.add(this.body, this.raisedBody);
 		this.build();
 	}
 
@@ -196,6 +209,52 @@ export class Layer implements MapLayer {
 		if (visible) this.hiddenParts.delete(part);
 		else this.hiddenParts.add(part);
 		for (const o of this.parts.get(part) ?? []) o.visible = visible;
+		for (const o of this.raisedParts.get(part) ?? []) o.visible = visible;
+	}
+
+	setTunnelTint(color: Color | null) {
+		this.tunnelTint = color;
+		this.tunnelMat?.color.set(color ?? 0xffffff);
+	}
+
+	raise(rooms: Room[], order = 8) {
+		this.raised = { rooms, order };
+		this.buildRaised();
+	}
+
+	private buildRaised() {
+		disposeTree(this.raisedBody);
+		this.raisedBody.clear();
+		this.raisedParts.clear();
+		const builders = new Map<string, { solid: Builder; glow: Builder }>();
+		for (const r of this.raised.rooms) {
+			const look = this.looks[r.id];
+			if (!look) continue;
+			const part = look.part ?? '';
+			let b = builders.get(part);
+			if (!b) builders.set(part, (b = { solid: new Builder(), glow: new Builder() }));
+			this.drawRoom(r, look, b.solid, b.glow);
+		}
+		// Transparent (at full opacity) so they sort after transparent overlays at a lower order.
+		const params = { vertexColors: true, transparent: true, opacity: 1, depthWrite: true };
+		for (const [part, { solid, glow }] of builders) {
+			const objs: THREE.Object3D[] = [];
+			for (const [b, mat] of [
+				[solid, new THREE.MeshLambertMaterial(params)],
+				[glow, new THREE.MeshBasicMaterial(params)]
+			] as const) {
+				if (b.empty) {
+					mat.dispose();
+					continue;
+				}
+				const m = new THREE.Mesh(b.build(), mat);
+				m.renderOrder = this.raised.order;
+				m.visible = !this.hiddenParts.has(part);
+				this.raisedBody.add(m);
+				objs.push(m);
+			}
+			this.raisedParts.set(part, objs);
+		}
 	}
 
 	lookOf(room: Room) {
@@ -216,37 +275,101 @@ export class Layer implements MapLayer {
 		this.object.removeFromParent();
 	}
 
+	/** Per-tile seed for brightness jitter. */
+	private tileSeed(x: number, y: number) {
+		return (y * this.map.width + x) * 7 + (this.style.seed ?? 0);
+	}
+
+	/** A run of 1-block-high wall faces, darker toward the bottom. */
+	private wallColumn(
+		b: Builder,
+		d: Dir,
+		x0: number,
+		z0: number,
+		h: number,
+		base: THREE.Color,
+		seed: number,
+		floorShade: number
+	) {
+		const j = this.style.jitter ?? 1;
+		for (let k = 0; k < h; k++) {
+			const top = Math.min(k + 1, h);
+			const col = shade(base, seed + d.charCodeAt(0) * 13 + k, 0.1 * j);
+			const lo = col.clone().multiplyScalar(floorShade + (1 - floorShade) * (k / h));
+			const hi = col.clone().multiplyScalar(floorShade + (1 - floorShade) * (top / h));
+			b.side(d, x0, z0, x0 + 1, z0 + 1, k, top, hi, false, lo);
+		}
+	}
+
+	/** Adds one room (walls, roof, props, door) at its resolved sink. */
+	private drawRoom(r: Room, look: RoomLook, solid: Builder, glow: Builder) {
+		const { roomAt } = this.map;
+		const { wx, wz } = this.space;
+		const j = this.style.jitter ?? 1;
+		const tile = (x: number, y: number) => this.tileSeed(x, y);
+		const wallColumn = this.wallColumn.bind(this);
+		const sink = this.sinks[r.id] ?? 0;
+		solid.lift = glow.lift = -sink;
+		const h = look.height;
+		const wall = toColor(look.wall);
+		const roof = toColor(look.roof);
+		for (let y = r.y; y < r.y + r.h; y++)
+			for (let x = r.x; x < r.x + r.w; x++) {
+				const x0 = wx(x);
+				const z0 = wz(y);
+				const seed = tile(x, y);
+				for (const [d, dx, dy] of SIDES)
+					if (roomAt[y + dy]?.[x + dx] !== r.id)
+						wallColumn(solid, d, x0, z0, h, wall, seed, ROOM_FLOOR_SHADE);
+				solid.top(x0, z0, x0 + 1, z0 + 1, h, shade(roof, seed, 0.08 * j));
+			}
+
+		const ox = wx(r.x);
+		const oz = wz(r.y);
+		for (const p of look.props ?? []) {
+			const b = p.glow ? glow : solid;
+			if (p.type === 'quad')
+				b.top(ox + p.x0, oz + p.y0, ox + p.x1, oz + p.y1, p.z, toColor(p.color));
+			else
+				b.box(
+					ox + p.x0,
+					oz + p.y0,
+					ox + p.x1,
+					oz + p.y1,
+					p.z0,
+					p.z1,
+					toColor(p.wall),
+					toColor(p.roof ?? p.wall)
+				);
+		}
+
+		if (look.door !== null) {
+			// A pale opening on the wall face toward the room's one tunnel.
+			const door = toColor(look.door ?? '#e6ecff');
+			const dx = r.access.x - r.door.x;
+			const dz = r.access.y - r.door.y;
+			const mx = wx(r.door.x) + 0.5 + dx * 0.52;
+			const mz = wz(r.door.y) + 0.5 + dz * 0.52;
+			const side: Dir = dx > 0 ? 'e' : dx < 0 ? 'w' : dz > 0 ? 's' : 'n';
+			const hw = DOOR_HALF_WIDTH;
+			if (dx !== 0) glow.side(side, mx - 0.5, mz - hw, mx + 0.5, mz + hw, 0, DOOR_HEIGHT, door);
+			else glow.side(side, mx - hw, mz - 0.5, mx + hw, mz + 0.5, 0, DOOR_HEIGHT, door);
+		}
+		solid.lift = glow.lift = 0;
+	}
+
 	private build() {
 		disposeTree(this.body);
 		this.body.clear();
 		this.parts.clear();
 
 		const { map, style, space } = this;
-		const { grid, roomAt, rooms } = map;
+		const { grid, rooms } = map;
 		const { wx, wz } = space;
 		const seed0 = style.seed ?? 0;
 		const j = style.jitter ?? 1;
-		const tile = (x: number, y: number) => (y * map.width + x) * 7 + seed0;
-
-		/** A run of 1-block-high wall faces, darker toward the bottom. */
-		const wallColumn = (
-			b: Builder,
-			d: Dir,
-			x0: number,
-			z0: number,
-			h: number,
-			base: THREE.Color,
-			seed: number,
-			floorShade: number
-		) => {
-			for (let k = 0; k < h; k++) {
-				const top = Math.min(k + 1, h);
-				const col = shade(base, seed + d.charCodeAt(0) * 13 + k, 0.1 * j);
-				const lo = col.clone().multiplyScalar(floorShade + (1 - floorShade) * (k / h));
-				const hi = col.clone().multiplyScalar(floorShade + (1 - floorShade) * (top / h));
-				b.side(d, x0, z0, x0 + 1, z0 + 1, k, top, hi, false, lo);
-			}
-		};
+		const tile = (x: number, y: number) => this.tileSeed(x, y);
+		const wallColumn = this.wallColumn.bind(this);
 
 		// ── Tunnels ─────────────────────────────────────────────────────────────
 		const tunnels = new Builder();
@@ -304,53 +427,7 @@ export class Layer implements MapLayer {
 			sink = Math.max(0, Math.min(sink, Math.floor(look.height) - 1));
 			this.sinks[r.id] = sink;
 			const { solid, glow } = into(look.part ?? '');
-			solid.lift = glow.lift = -sink;
-			const h = look.height;
-			const wall = toColor(look.wall);
-			const roof = toColor(look.roof);
-			for (let y = r.y; y < r.y + r.h; y++)
-				for (let x = r.x; x < r.x + r.w; x++) {
-					const x0 = wx(x);
-					const z0 = wz(y);
-					const seed = tile(x, y);
-					for (const [d, dx, dy] of SIDES)
-						if (roomAt[y + dy]?.[x + dx] !== r.id)
-							wallColumn(solid, d, x0, z0, h, wall, seed, ROOM_FLOOR_SHADE);
-					solid.top(x0, z0, x0 + 1, z0 + 1, h, shade(roof, seed, 0.08 * j));
-				}
-
-			const ox = wx(r.x);
-			const oz = wz(r.y);
-			for (const p of look.props ?? []) {
-				const b = p.glow ? glow : solid;
-				if (p.type === 'quad')
-					b.top(ox + p.x0, oz + p.y0, ox + p.x1, oz + p.y1, p.z, toColor(p.color));
-				else
-					b.box(
-						ox + p.x0,
-						oz + p.y0,
-						ox + p.x1,
-						oz + p.y1,
-						p.z0,
-						p.z1,
-						toColor(p.wall),
-						toColor(p.roof ?? p.wall)
-					);
-			}
-
-			if (look.door !== null) {
-				// A pale opening on the wall face toward the room's one tunnel.
-				const door = toColor(look.door ?? '#e6ecff');
-				const dx = r.access.x - r.door.x;
-				const dz = r.access.y - r.door.y;
-				const mx = wx(r.door.x) + 0.5 + dx * 0.52;
-				const mz = wz(r.door.y) + 0.5 + dz * 0.52;
-				const side: Dir = dx > 0 ? 'e' : dx < 0 ? 'w' : dz > 0 ? 's' : 'n';
-				const hw = DOOR_HALF_WIDTH;
-				if (dx !== 0) glow.side(side, mx - 0.5, mz - hw, mx + 0.5, mz + hw, 0, DOOR_HEIGHT, door);
-				else glow.side(side, mx - hw, mz - 0.5, mx + hw, mz + 0.5, 0, DOOR_HEIGHT, door);
-			}
-			solid.lift = glow.lift = 0;
+			this.drawRoom(r, look, solid, glow);
 		}
 
 		// ── Meshes ──────────────────────────────────────────────────────────────
@@ -364,18 +441,18 @@ export class Layer implements MapLayer {
 			this.body.add(m);
 			return m;
 		};
-		if (!tunnels.empty)
-			mesh(
-				tunnels.build(),
-				new THREE.MeshLambertMaterial({
-					vertexColors: true,
-					stencilWrite: true,
-					stencilRef: 1,
-					stencilFunc: THREE.AlwaysStencilFunc,
-					stencilZPass: THREE.ReplaceStencilOp
-				}),
-				1
-			);
+		this.tunnelMat = null;
+		if (!tunnels.empty) {
+			this.tunnelMat = new THREE.MeshLambertMaterial({
+				vertexColors: true,
+				color: this.tunnelTint ?? 0xffffff,
+				stencilWrite: true,
+				stencilRef: 1,
+				stencilFunc: THREE.AlwaysStencilFunc,
+				stencilZPass: THREE.ReplaceStencilOp
+			});
+			mesh(tunnels.build(), this.tunnelMat, 1);
+		}
 		const solidMats = ghostedPair((p) => new THREE.MeshLambertMaterial(p), ghost);
 		const glowMats = ghostedPair((p) => new THREE.MeshBasicMaterial(p), ghost);
 		for (const [part, { solid, glow }] of builders) {
@@ -392,5 +469,6 @@ export class Layer implements MapLayer {
 			for (const o of objs) o.visible = visible;
 			this.parts.set(part, objs);
 		}
+		this.buildRaised();
 	}
 }
