@@ -7,6 +7,9 @@
 	import { facilityStatus, STATUS_INFO, type Status } from '#lib/hollow/sensors.js';
 	import { assessImpact } from '#lib/hollow/impact.js';
 	import { createHollow, type Floor } from '#lib/hollow/world.js';
+	import { sicknessOf } from '#lib/hollow/sickness.js';
+	import SicknessScale from './sickness-scale.svelte';
+	import { home, SECTION_LENS } from './home-state.svelte.js';
 	import { cn } from '#lib/utils.js';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as ButtonGroup from '#lib/components/ui/button-group/index.js';
@@ -57,8 +60,15 @@
 	const placeColor = (p: Place) =>
 		p.kind === 'shaft' ? SHAFT_COLORS[SHAFTS[p.shaft!].status] : KIND_COLOR[p.kind];
 
-	/** Bounding box of the dug area on a floor, in tiles. */
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- cache, never read by the template
+	const boundsCache = new Map<number, readonly [number, number, number, number]>();
+	/** Bounding box of the dug area on a floor, in tiles (scans the whole grid, so cached). */
 	function cityBounds(f: Floor) {
+		let b = boundsCache.get(f.index);
+		if (!b) boundsCache.set(f.index, (b = scanBounds(f)));
+		return b;
+	}
+	function scanBounds(f: Floor) {
 		let minX = Infinity;
 		let minY = Infinity;
 		let maxX = -Infinity;
@@ -215,6 +225,29 @@
 		);
 	});
 
+	// ── Data lens (driven by the open sidebar section) ──────────────────────
+	const lens = $derived(SECTION_LENS[home.section] ?? null);
+	$effect(() => scene?.setLens(lens));
+	/** Sick share across the shown level (or every level in the stacked view). */
+	const sickTotals = $derived.by(() => {
+		if (lens !== 'sickness') return null;
+		const floors = overview ? LEVELS.map((l) => hollow.floor(l.index)) : [floor];
+		let reported = 0;
+		let sick = 0;
+		for (const f of floors)
+			for (const s of sicknessOf(f))
+				if (s) {
+					reported += s.reported;
+					sick += s.sick;
+				}
+		return { reported, sick, share: sick / Math.max(1, reported) };
+	});
+	const selectedSickness = $derived(
+		lens === 'sickness' && selected?.kind === 'block'
+			? sicknessOf(hollow.floor(selected.floor))[selected.room.id]
+			: null
+	);
+
 	// ── Keyboard ─────────────────────────────────────────────────────────────
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- never read by the template
 	const held = new Set<string>();
@@ -284,6 +317,21 @@
 		s.showFloor(hollow.floor(0), 0);
 		s.fitBounds(...cityBounds(hollow.floor(0)));
 
+		// Warm up the other levels one at a time while the page is idle: decoding a floor is
+		// main-thread work, but its meshes build in a worker, so the UI keeps animating.
+		const idle = (fn: () => void) =>
+			'requestIdleCallback' in window
+				? requestIdleCallback(fn, { timeout: 1000 })
+				: setTimeout(fn, 50);
+		let warm = 1;
+		let disposed = false;
+		const warmNext = () => {
+			if (disposed || warm >= LEVELS.length) return;
+			s.preload(hollow.floor(warm++));
+			idle(warmNext);
+		};
+		idle(warmNext);
+
 		const onKeyUp = (e: KeyboardEvent) => {
 			held.delete(e.key.toLowerCase());
 			syncPan();
@@ -299,6 +347,7 @@
 			window.removeEventListener('keydown', onKeyDown);
 			window.removeEventListener('keyup', onKeyUp);
 			window.removeEventListener('blur', onBlur);
+			disposed = true;
 			s.dispose();
 			scene = undefined;
 		};
@@ -384,6 +433,24 @@
 		</ToggleGroup.Root>
 	</div>
 
+	{#if sickTotals}
+		<div
+			class="absolute top-16 left-4 z-10 flex w-56 flex-col gap-1.5 rounded-lg border bg-background/90 p-3 text-xs backdrop-blur"
+		>
+			<div class="flex items-center justify-between">
+				<span class="font-semibold">Lung sickness</span>
+				<span class="text-muted-foreground">{overview ? 'All levels' : level.code}</span>
+			</div>
+			<SicknessScale />
+			<p class="text-muted-foreground">
+				<span class="font-semibold text-foreground tabular-nums"
+					>{Math.round(sickTotals.share * 100)}%</span
+				>
+				of {sickTotals.reported.toLocaleString('en')} reported residents sick
+			</p>
+		</div>
+	{/if}
+
 	<!-- Map controls -->
 	<div class="absolute right-4 bottom-4 z-10 flex flex-col items-end gap-2">
 		<Button
@@ -427,6 +494,7 @@
 			floor={hollow.floor(selected.floor)}
 			color={placeColor(selected)}
 			{impact}
+			sickness={selectedSickness}
 			onclose={() => select(null)}
 		/>
 	{:else}

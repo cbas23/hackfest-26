@@ -15,11 +15,27 @@ export const SIDES: [Dir, number, number][] = [
 export const toColor = (c: THREE.ColorRepresentation) =>
 	c instanceof THREE.Color ? c : new THREE.Color(c);
 
-/** Accumulates flat-shaded, vertex-coloured quads into one BufferGeometry. */
+/** Built faces as compact typed arrays: cloneable, and transferable out of a worker. */
+export interface MeshArrays {
+	position: Float32Array;
+	/** Unit normals scaled to ±127 (normalized). */
+	normal: Int8Array;
+	/** Linear colours scaled to 0–65535 (normalized; 8 bits would band the dark tones). */
+	color: Uint16Array;
+	index: Uint16Array | Uint32Array;
+	/** Bounding sphere, so the renderer never has to walk the vertices for it. */
+	sphere: [number, number, number, number];
+}
+
+/**
+ * Accumulates flat-shaded, vertex-coloured quads into one indexed geometry: four
+ * vertices and two triangles per quad.
+ */
 export class Builder {
 	private pos: number[] = [];
 	private nor: number[] = [];
 	private col: number[] = [];
+	private idx: number[] = [];
 	/** Added to every vertex height, to draw a whole object raised or sunk. */
 	lift = 0;
 
@@ -40,16 +56,18 @@ export class Builder {
 		color: THREE.Color | THREE.Color[],
 		flip = false
 	) {
-		const cs = Array.isArray(color) ? color : [color, color, color, color];
-		const order = flip ? [3, 2, 1, 3, 1, 0] : [0, 1, 2, 0, 2, 3];
+		const base = this.pos.length / 3;
+		const s = flip ? -1 : 1;
 		const pts = [a, b, c, d];
-		for (const i of order) {
+		for (let i = 0; i < 4; i++) {
 			const p = pts[i];
+			const k = Array.isArray(color) ? color[i] : color;
 			this.pos.push(p[0], p[1] + this.lift, p[2]);
-			if (flip) this.nor.push(-n[0], -n[1], -n[2]);
-			else this.nor.push(n[0], n[1], n[2]);
-			this.col.push(cs[i].r, cs[i].g, cs[i].b);
+			this.nor.push(n[0] * s, n[1] * s, n[2] * s);
+			this.col.push(k.r, k.g, k.b);
 		}
+		if (flip) this.idx.push(base + 3, base + 2, base + 1, base + 3, base + 1, base);
+		else this.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
 	}
 
 	/** Horizontal face at height y, facing up (or down when `flip`). */
@@ -99,13 +117,62 @@ export class Builder {
 		this.top(x0, z0, x1, z1, y1, roof);
 	}
 
-	build() {
-		const g = new THREE.BufferGeometry();
-		g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
-		g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));
-		g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
-		return g;
+	arrays(): MeshArrays {
+		const { pos, nor, col, idx } = this;
+		const n = pos.length / 3;
+		const position = new Float32Array(pos.length);
+		const normal = new Int8Array(nor.length);
+		const color = new Uint16Array(col.length);
+		let minX = Infinity,
+			minY = Infinity,
+			minZ = Infinity,
+			maxX = -Infinity,
+			maxY = -Infinity,
+			maxZ = -Infinity;
+		for (let i = 0; i < pos.length; i += 3) {
+			const x = (position[i] = pos[i]);
+			const y = (position[i + 1] = pos[i + 1]);
+			const z = (position[i + 2] = pos[i + 2]);
+			if (x < minX) minX = x;
+			if (x > maxX) maxX = x;
+			if (y < minY) minY = y;
+			if (y > maxY) maxY = y;
+			if (z < minZ) minZ = z;
+			if (z > maxZ) maxZ = z;
+		}
+		for (let i = 0; i < nor.length; i++) normal[i] = Math.round(nor[i] * 127);
+		for (let i = 0; i < col.length; i++) {
+			const c = col[i];
+			color[i] = c >= 1 ? 65535 : c <= 0 ? 0 : (c * 65535 + 0.5) | 0;
+		}
+		// Centre of the box, and its half-diagonal as the radius (a snug enough bound).
+		const sphere: MeshArrays['sphere'] = n
+			? [
+					(minX + maxX) / 2,
+					(minY + maxY) / 2,
+					(minZ + maxZ) / 2,
+					Math.hypot(maxX - minX, maxY - minY, maxZ - minZ) / 2
+				]
+			: [0, 0, 0, 0];
+		const index = n > 65535 ? new Uint32Array(idx) : new Uint16Array(idx);
+		return { position, normal, color, index, sphere };
 	}
+
+	build() {
+		return toGeometry(this.arrays());
+	}
+}
+
+/** Wrap built arrays in a geometry (no copy, bounds included). */
+export function toGeometry(a: MeshArrays) {
+	const g = new THREE.BufferGeometry();
+	g.setAttribute('position', new THREE.BufferAttribute(a.position, 3));
+	g.setAttribute('normal', new THREE.BufferAttribute(a.normal, 3, true));
+	g.setAttribute('color', new THREE.BufferAttribute(a.color, 3, true));
+	g.setIndex(new THREE.BufferAttribute(a.index, 1));
+	const [x, y, z, r] = a.sphere;
+	g.boundingSphere = new THREE.Sphere(new THREE.Vector3(x, y, z), r);
+	return g;
 }
 
 export const hash01 = (n: number) => {

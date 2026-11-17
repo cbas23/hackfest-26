@@ -3,6 +3,13 @@ import type { Room } from '#lib/tunnels/generate.js';
 import { hash01, shade, type LayerStyle, type Prop, type RoomLook } from '#lib/map/index.js';
 import { FACILITY_INFO, LEVELS, SHAFTS, SHAFT_COLORS, type FacilityKind } from './data.js';
 import type { Floor } from './world.js';
+import { SICK_STEPS, sickStep, sicknessOf } from './sickness.js';
+
+/** A data view painted over the map instead of its normal palette. */
+export type MapLens = 'sickness';
+
+/** Tunnels under a data lens: a flat, very dark trace just above the floor. */
+const LENS_TUNNEL = { top: '#181b24', wall: '#14161d', underside: '#0e1015', height: 0.06 };
 
 /** Height of a tunnel, in blocks. The top block is a half block. */
 export const TUNNEL_H = 1.5;
@@ -137,15 +144,31 @@ function facilityProps(kind: FacilityKind, r: Room, y: number): Prop[] {
 }
 
 /** How a Hollow floor looks: tunnels, housing (dark in blackout), farms, plants, shafts, facilities. */
-export function floorStyle(floor: Floor): LayerStyle {
+export function floorStyle(floor: Floor, lens: MapLens | null = null): LayerStyle {
 	const c = paletteFor(floor.index);
+	const sickness = lens === 'sickness' ? sicknessOf(floor) : null;
+	const steps = SICK_STEPS.map((s) => new THREE.Color(s.color));
+	const muted = { wall: new THREE.Color('#23262e'), roof: new THREE.Color('#1c1e25') };
 	return {
 		seed: floor.index * 1_000_003,
-		tunnel: { top: c.road, wall: c.tunnelWall, height: TUNNEL_H },
+		// A data lens is read off the rooms alone: they go fully opaque with flat colours (no
+		// per-block brightness jitter skewing the scale), and the tunnels flatten into a
+		// near-black trace on the floor, too low to ever cover a room or its highlight.
+		...(lens
+			? { tunnel: LENS_TUNNEL, ghostOpacity: 0, jitter: 0 }
+			: { tunnel: { top: c.road, wall: c.tunnelWall, height: TUNNEL_H } }),
 		room(r): RoomLook {
 			const height = roomHeight(floor, r);
 			const facility = floor.facilities.get(r.id);
 			const base = { height, door: null };
+			if (sickness && r.kind !== 'gate') {
+				// Sickness lens: houses in five steps from dark gray to bright orange; every
+				// other chamber recedes so the heat reads at a glance.
+				const s = sickness[r.id];
+				if (!s) return { ...base, ...muted };
+				const roof = steps[sickStep(s.score)];
+				return { ...base, roof, wall: roof.clone().multiplyScalar(0.72) };
+			}
 			if (facility) {
 				const accent = new THREE.Color(FACILITY_INFO[facility.kind].color);
 				return {

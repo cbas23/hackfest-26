@@ -4,6 +4,8 @@
 	import { facilityStatus, STATUS_INFO } from '#lib/hollow/sensors.js';
 	import type { ImpactAssessment } from '#lib/hollow/impact.js';
 	import type { Floor } from '#lib/hollow/world.js';
+	import type { BlockSickness } from '#lib/hollow/sickness.js';
+	import SicknessScale from './sickness-scale.svelte';
 	import { cn } from '#lib/utils.js';
 	import * as Card from '#lib/components/ui/card/index.js';
 	import { Button } from '#lib/components/ui/button/index.js';
@@ -16,6 +18,7 @@
 		floor: pf,
 		color,
 		impact,
+		sickness = null,
 		onclose,
 		class: className
 	}: {
@@ -23,6 +26,7 @@
 		floor: Floor;
 		color: string;
 		impact: ImpactAssessment | null;
+		sickness?: BlockSickness | null;
 		onclose: () => void;
 		class?: string;
 	} = $props();
@@ -79,6 +83,22 @@
 				door
 			{/if}
 		</p>
+
+		{#if sickness}
+			<Separator />
+			<div class="flex flex-col gap-2 text-xs">
+				<div class="flex items-center justify-between">
+					<span class="font-semibold tracking-wider text-muted-foreground">LUNG SICKNESS</span>
+					<span class="font-semibold tabular-nums">{Math.round(sickness.score * 100)}%</span>
+				</div>
+				<SicknessScale score={sickness.score} />
+				<p class="text-muted-foreground">
+					{sickness.sick.toLocaleString('en')} of {sickness.reported.toLocaleString('en')} reported residents
+					sick
+				</p>
+				<p class="text-[10px] text-muted-foreground">Simulated reports</p>
+			</div>
+		{/if}
 
 		{#if sensors}
 			{@const overall = STATUS_INFO[sensors.status]}
