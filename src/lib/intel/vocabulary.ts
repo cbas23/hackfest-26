@@ -122,7 +122,7 @@ export const CONCEPTS: Record<Concept, ConceptEntry> = {
 	inhaler: {
 		group: 'supply',
 		label: 'Inhalers',
-		terms: ['inhaler', 'inhalers', 'bronchodilator']
+		terms: ['inhaler', 'inhalers', 'bronchodilator', 'puffer', 'puffers']
 	},
 	'filter-mask': {
 		group: 'supply',
