@@ -161,6 +161,49 @@ export function createMap(container: HTMLElement, options: MapOptions = {}): Tun
 	sun.position.set(-0.45, 1, 0.3);
 	scene.add(sun);
 
+	// ── Warm-up: get new meshes onto the GPU before they are shown ───────────
+	// A mesh's buffers upload the first time it is drawn, which for a whole level is a
+	// long frame. New layer bodies are drawn once beforehand, one mesh per frame, into a
+	// single pixel (that the real frame then paints over), in a scene with the same kinds
+	// of lights and fog so the shaders already compiled for the real scene are reused.
+	const warmScene = new THREE.Scene();
+	warmScene.add(new THREE.HemisphereLight(), new THREE.DirectionalLight());
+	const warmQueue: { mesh: THREE.Mesh; done?: () => void }[] = [];
+	const warmUp = (object: THREE.Object3D) =>
+		new Promise<void>((resolve) => {
+			const meshes: THREE.Mesh[] = [];
+			object.traverse((o) => {
+				if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh);
+			});
+			if (!meshes.length) return resolve();
+			meshes.forEach((mesh, i) =>
+				warmQueue.push({ mesh, done: i === meshes.length - 1 ? resolve : undefined })
+			);
+		});
+	const warmNext = () => {
+		const job = warmQueue.shift();
+		if (!job) return;
+		const { mesh } = job;
+		const parent = mesh.parent;
+		const culled = mesh.frustumCulled;
+		mesh.frustumCulled = false;
+		warmScene.fog = scene.fog;
+		warmScene.add(mesh);
+		renderer.setScissorTest(true);
+		renderer.setScissor(0, 0, 1, 1);
+		renderer.render(warmScene, camera);
+		renderer.setScissorTest(false);
+		warmScene.remove(mesh);
+		parent?.add(mesh);
+		mesh.frustumCulled = culled;
+		job.done?.();
+	};
+	/** Compile a new layer body's shaders (without blocking), then upload its meshes. */
+	const prepare = async (object: THREE.Object3D) => {
+		await renderer.compileAsync(object, camera, scene);
+		await warmUp(object);
+	};
+
 	const cam = options.camera ?? {};
 	const camera = new THREE.PerspectiveCamera(cam.fov ?? 40, 1, 0.5, 3000);
 	const controls = new MapControls(camera, renderer.domElement);
@@ -455,6 +498,7 @@ export function createMap(container: HTMLElement, options: MapOptions = {}): Tun
 		emit('frame', performance.now(), dt);
 
 		for (const m of markers) placeMarker(m);
+		warmNext();
 		renderer.render(scene, camera);
 
 		offset.copy(camera.position).sub(controls.target);
@@ -476,7 +520,7 @@ export function createMap(container: HTMLElement, options: MapOptions = {}): Tun
 				originSet = true;
 				for (const o of overlays) o.redraw();
 			}
-			const layer = new Layer(id, map, opts.style ?? {}, space);
+			const layer = new Layer(id, map, opts.style ?? {}, space, prepare);
 			layer.set({ y: opts.y ?? 0, visible: opts.visible ?? true });
 			layers.set(id, layer);
 			scene.add(layer.object);
@@ -557,6 +601,7 @@ export function createMap(container: HTMLElement, options: MapOptions = {}): Tun
 		three: { renderer, scene, camera, controls },
 		dispose() {
 			cancelAnimationFrame(raf);
+			for (const job of warmQueue.splice(0)) job.done?.();
 			observer.disconnect();
 			controls.removeEventListener('start', cancelFly);
 			controls.dispose();

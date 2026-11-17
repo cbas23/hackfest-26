@@ -1,6 +1,16 @@
 import * as THREE from 'three';
 import type { Point, Room, TunnelMap } from '#lib/tunnels/generate.js';
-import { Builder, SIDES, disposeTree, hash01, shade, toColor, type Dir } from './geometry.js';
+import { disposeTree, hash01, toColor, toGeometry } from './geometry.js';
+import {
+	buildMeshes,
+	toRGB,
+	type FlatGrid,
+	type MeshInput,
+	type MeshOutput,
+	type PlainProp,
+	type PlainRoom
+} from './mesh.js';
+import { meshAsync } from './mesher.js';
 
 export type Color = THREE.ColorRepresentation;
 
@@ -132,13 +142,14 @@ export interface MapLayer {
 	/** How far below the layer floor a room's base sits, in blocks (0 when not drawn). */
 	sinkOf(room: Room): number;
 	readonly tunnelHeight: number;
+	/**
+	 * Meshes are built off the main thread, so they appear a moment after the layer is
+	 * added or restyled (until then the previous look, or nothing, stays on screen). Looks,
+	 * heights and picking are ready at once. Resolves when the latest build is on screen.
+	 */
+	readonly ready: Promise<void>;
 }
 
-/** Tunnel faces darken toward the floor by this factor; rooms by `ROOM_FLOOR_SHADE`. */
-const TUNNEL_FLOOR_SHADE = 0.8;
-const ROOM_FLOOR_SHADE = 0.7;
-const DOOR_HALF_WIDTH = 0.32;
-const DOOR_HEIGHT = 1.4;
 const DEFAULT_GHOST = 0.28;
 
 /** Opaque wherever no tunnel is behind; see-through wherever one is (via the stencil mark). */
@@ -165,6 +176,26 @@ function ghostedPair(
 	return [opaque, ghost] as const;
 }
 
+const rgb = (c: Color) => toRGB(toColor(c));
+
+/** Tile grids flattened for the mesher, once per map. */
+const flatGrids = new WeakMap<TunnelMap, FlatGrid>();
+let nextGridId = 0;
+function flatten(map: TunnelMap): FlatGrid {
+	let f = flatGrids.get(map);
+	if (f) return f;
+	const road = new Uint8Array(map.width * map.height);
+	const roomAt = new Int32Array(map.width * map.height).fill(-1);
+	for (let y = 0; y < map.height; y++)
+		for (let x = 0; x < map.width; x++) {
+			const i = y * map.width + x;
+			if (map.grid[y]?.[x] === 'road') road[i] = 1;
+			roomAt[i] = map.roomAt[y]?.[x] ?? -1;
+		}
+	flatGrids.set(map, (f = { id: nextGridId++, width: map.width, road, roomAt }));
+	return f;
+}
+
 export class Layer implements MapLayer {
 	readonly object = new THREE.Group();
 	private body = new THREE.Group();
@@ -177,13 +208,21 @@ export class Layer implements MapLayer {
 	private hiddenParts = new Set<string>();
 	private looks: (RoomLook | null)[] = [];
 	private sinks: number[] = [];
+	/** Each room's look in mesher form, resolved with the looks. */
+	private plain: (PlainRoom | null)[] = [];
+	/** Bumped on every build, so a stale worker result is dropped. */
+	private version = 0;
+	private disposed = false;
 	tunnelHeight = 1.5;
+	ready: Promise<void> = Promise.resolve();
 
 	constructor(
 		readonly id: string,
 		readonly map: TunnelMap,
 		private style: LayerStyle,
-		private space: Space
+		private space: Space,
+		/** Compiles a new body's shaders before it goes on screen (e.g. `compileAsync`). */
+		private prepare?: (object: THREE.Object3D) => Promise<unknown>
 	) {
 		this.object.name = `layer:${id}`;
 		this.object.add(this.body, this.raisedBody);
@@ -228,41 +267,6 @@ export class Layer implements MapLayer {
 		this.buildRaised();
 	}
 
-	private buildRaised() {
-		disposeTree(this.raisedBody);
-		this.raisedBody.clear();
-		this.raisedParts.clear();
-		const builders = new Map<string, { solid: Builder; glow: Builder }>();
-		for (const r of this.raised.rooms) {
-			const look = this.looks[r.id];
-			if (!look) continue;
-			const part = look.part ?? '';
-			let b = builders.get(part);
-			if (!b) builders.set(part, (b = { solid: new Builder(), glow: new Builder() }));
-			this.drawRoom(r, look, b.solid, b.glow);
-		}
-		// Transparent (at full opacity) so they sort after transparent overlays at a lower order.
-		const params = { vertexColors: true, transparent: true, opacity: 1, depthWrite: true };
-		for (const [part, { solid, glow }] of builders) {
-			const objs: THREE.Object3D[] = [];
-			for (const [b, mat] of [
-				[solid, new THREE.MeshLambertMaterial(params)],
-				[glow, new THREE.MeshBasicMaterial(params)]
-			] as const) {
-				if (b.empty) {
-					mat.dispose();
-					continue;
-				}
-				const m = new THREE.Mesh(b.build(), mat);
-				m.renderOrder = this.raised.order;
-				m.visible = !this.hiddenParts.has(part);
-				this.raisedBody.add(m);
-				objs.push(m);
-			}
-			this.raisedParts.set(part, objs);
-		}
-	}
-
 	lookOf(room: Room) {
 		return this.looks[room.id] ?? null;
 	}
@@ -277,145 +281,52 @@ export class Layer implements MapLayer {
 	}
 
 	dispose() {
+		this.disposed = true;
 		disposeTree(this.object);
 		this.object.removeFromParent();
 	}
 
-	/** Per-tile seed for brightness jitter. */
-	private tileSeed(x: number, y: number) {
-		return (y * this.map.width + x) * 7 + (this.style.seed ?? 0);
-	}
-
-	/** A run of 1-block-high wall faces, darker toward the bottom. */
-	private wallColumn(
-		b: Builder,
-		d: Dir,
-		x0: number,
-		z0: number,
-		h: number,
-		base: THREE.Color,
-		seed: number,
-		floorShade: number
-	) {
-		const j = this.style.jitter ?? 1;
-		for (let k = 0; k < h; k++) {
-			const top = Math.min(k + 1, h);
-			const col = shade(base, seed + d.charCodeAt(0) * 13 + k, 0.1 * j);
-			const lo = col.clone().multiplyScalar(floorShade + (1 - floorShade) * (k / h));
-			const hi = col.clone().multiplyScalar(floorShade + (1 - floorShade) * (top / h));
-			b.side(d, x0, z0, x0 + 1, z0 + 1, k, top, hi, false, lo);
-		}
-	}
-
-	/** Adds one room (walls, roof, props, door) at its resolved sink. */
-	private drawRoom(r: Room, look: RoomLook, solid: Builder, glow: Builder) {
-		const { roomAt } = this.map;
-		const { wx, wz } = this.space;
-		const j = this.style.jitter ?? 1;
-		const tile = (x: number, y: number) => this.tileSeed(x, y);
-		const wallColumn = this.wallColumn.bind(this);
-		const sink = this.sinks[r.id] ?? 0;
-		solid.lift = glow.lift = -sink;
-		const h = look.height;
-		const wall = toColor(look.wall);
-		const roof = toColor(look.roof);
-		for (let y = r.y; y < r.y + r.h; y++)
-			for (let x = r.x; x < r.x + r.w; x++) {
-				const x0 = wx(x);
-				const z0 = wz(y);
-				const seed = tile(x, y);
-				for (const [d, dx, dy] of SIDES)
-					if (roomAt[y + dy]?.[x + dx] !== r.id)
-						wallColumn(solid, d, x0, z0, h, wall, seed, ROOM_FLOOR_SHADE);
-				solid.top(x0, z0, x0 + 1, z0 + 1, h, shade(roof, seed, 0.08 * j));
-			}
-
-		const ox = wx(r.x);
-		const oz = wz(r.y);
-		for (const p of look.props ?? []) {
-			const b = p.glow ? glow : solid;
-			if (p.type === 'quad')
-				b.top(ox + p.x0, oz + p.y0, ox + p.x1, oz + p.y1, p.z, toColor(p.color));
-			else
-				b.box(
-					ox + p.x0,
-					oz + p.y0,
-					ox + p.x1,
-					oz + p.y1,
-					p.z0,
-					p.z1,
-					toColor(p.wall),
-					toColor(p.roof ?? p.wall)
-				);
-		}
-
-		if (look.door !== null) {
-			// A pale opening on the wall face toward the room's one tunnel.
-			const door = toColor(look.door ?? '#e6ecff');
-			const dx = r.access.x - r.door.x;
-			const dz = r.access.y - r.door.y;
-			const mx = wx(r.door.x) + 0.5 + dx * 0.52;
-			const mz = wz(r.door.y) + 0.5 + dz * 0.52;
-			const side: Dir = dx > 0 ? 'e' : dx < 0 ? 'w' : dz > 0 ? 's' : 'n';
-			const hw = DOOR_HALF_WIDTH;
-			if (dx !== 0) glow.side(side, mx - 0.5, mz - hw, mx + 0.5, mz + hw, 0, DOOR_HEIGHT, door);
-			else glow.side(side, mx - hw, mz - 0.5, mx + hw, mz + 0.5, 0, DOOR_HEIGHT, door);
-		}
-		solid.lift = glow.lift = 0;
-	}
-
-	private build() {
-		disposeTree(this.body);
-		this.body.clear();
-		this.parts.clear();
-
-		const { map, style, space } = this;
-		const { grid, rooms } = map;
-		const { wx, wz } = space;
-		const seed0 = style.seed ?? 0;
-		const j = style.jitter ?? 1;
-		const tile = (x: number, y: number) => this.tileSeed(x, y);
-		const wallColumn = this.wallColumn.bind(this);
-
-		// ── Tunnels ─────────────────────────────────────────────────────────────
-		const tunnels = new Builder();
+	/** Mesher input for some rooms (and the tunnels, if asked). */
+	private meshInput(rooms: PlainRoom[], withTunnels: boolean): MeshInput {
+		const { style, map } = this;
 		const tunnel = style.tunnel === undefined ? DEFAULT_TUNNEL : style.tunnel;
-		if (tunnel) {
-			const th = tunnel.height ?? 1.5;
-			this.tunnelHeight = th;
-			const top = toColor(tunnel.top);
-			const wall = toColor(tunnel.wall);
-			const under = tunnel.underside ? toColor(tunnel.underside) : wall.clone().multiplyScalar(0.6);
-			const isRoad = (x: number, y: number) => grid[y]?.[x] === 'road';
-			for (let y = 0; y < map.height; y++)
-				for (let x = 0; x < map.width; x++) {
-					if (!isRoad(x, y)) continue;
-					const x0 = wx(x);
-					const z0 = wz(y);
-					const seed = tile(x, y);
-					// Only adjoining tunnel tiles share an open face. Walls stay beside rooms so the
-					// tunnel owns its full silhouette (and stencil mask), even at a door.
-					for (const [d, dx, dy] of SIDES)
-						if (!isRoad(x + dx, y + dy))
-							wallColumn(tunnels, d, x0, z0, th, wall, seed, TUNNEL_FLOOR_SHADE);
-					tunnels.top(x0, z0, x0 + 1, z0 + 1, th, shade(top, seed, 0.06 * j));
-					tunnels.top(x0, z0, x0 + 1, z0 + 1, 0, under, true);
-				}
-		} else this.tunnelHeight = 0;
-
-		// ── Rooms ───────────────────────────────────────────────────────────────
-		const builders = new Map<string, { solid: Builder; glow: Builder }>();
-		const into = (part: string) => {
-			let b = builders.get(part);
-			if (!b) builders.set(part, (b = { solid: new Builder(), glow: new Builder() }));
-			return b;
+		const wall = tunnel && toColor(tunnel.wall);
+		return {
+			grid: flatten(map),
+			rooms,
+			origin: { ...this.space.origin },
+			seed: style.seed ?? 0,
+			jitter: style.jitter ?? 1,
+			tunnel:
+				withTunnels && tunnel && wall
+					? {
+							top: rgb(tunnel.top),
+							wall: toRGB(wall),
+							under: tunnel.underside
+								? rgb(tunnel.underside)
+								: toRGB(wall.clone().multiplyScalar(0.6)),
+							height: tunnel.height ?? 1.5
+						}
+					: null
 		};
+	}
+
+	/**
+	 * Resolve every room's look and sink now (cheap, and what picking and overlays read),
+	 * then build the meshes in the background and swap them in when they arrive.
+	 */
+	private build() {
+		const { style, map } = this;
+		const tunnel = style.tunnel === undefined ? DEFAULT_TUNNEL : style.tunnel;
+		this.tunnelHeight = tunnel ? (tunnel.height ?? 1.5) : 0;
+		const seed0 = style.seed ?? 0;
 		const lookFn = style.room ?? defaultRoomLook;
-		this.looks = rooms.map(() => null);
-		this.sinks = rooms.map(() => 0);
 		const sinkChance = style.sinkChance ?? 0.4;
 		const maxSink = Math.max(1, style.maxSink ?? 2);
-		for (const r of rooms) {
+		this.looks = map.rooms.map(() => null);
+		this.sinks = map.rooms.map(() => 0);
+		this.plain = map.rooms.map(() => null);
+		for (const r of map.rooms) {
 			const look = lookFn(r);
 			this.looks[r.id] = look;
 			if (!look) continue;
@@ -432,24 +343,63 @@ export class Layer implements MapLayer {
 			// Keep at least one block of the room level with the tunnel so the door stays connected.
 			sink = Math.max(0, Math.min(sink, Math.floor(look.height) - 1));
 			this.sinks[r.id] = sink;
-			const { solid, glow } = into(look.part ?? '');
-			this.drawRoom(r, look, solid, glow);
+			this.plain[r.id] = {
+				id: r.id,
+				x: r.x,
+				y: r.y,
+				w: r.w,
+				h: r.h,
+				door: r.door,
+				access: r.access,
+				wall: rgb(look.wall),
+				roof: rgb(look.roof),
+				height: look.height,
+				doorColor: look.door === null ? null : rgb(look.door ?? '#e6ecff'),
+				props: (look.props ?? []).map((p): PlainProp =>
+					p.type === 'quad'
+						? { ...p, color: rgb(p.color), glow: !!p.glow }
+						: { ...p, wall: rgb(p.wall), roof: rgb(p.roof ?? p.wall), glow: !!p.glow }
+				),
+				part: look.part ?? '',
+				sink
+			};
 		}
 
-		// ── Meshes ──────────────────────────────────────────────────────────────
+		const input = this.meshInput(
+			this.plain.filter((p): p is PlainRoom => !!p),
+			true
+		);
+		const ghost = style.ghostOpacity ?? DEFAULT_GHOST;
+		const version = ++this.version;
+		const stale = () => version !== this.version || this.disposed;
+		this.ready = meshAsync(input).then(async (out) => {
+			if (stale()) return;
+			const next = this.makeBody(out, ghost);
+			// Compile its shaders off the critical path, so the swap itself never stalls a frame.
+			await this.prepare?.(next.body).catch(() => {});
+			if (stale()) disposeTree(next.body);
+			else this.swapBody(next);
+		});
+		this.buildRaised();
+	}
+
+	/** Swap freshly built meshes in for the current ones. */
+	/** Meshes for freshly built geometry, not yet on screen. */
+	private makeBody(out: MeshOutput, ghost: number) {
+		const body = new THREE.Group();
+		const parts = new Map<string, THREE.Object3D[]>();
 		// Tunnels mark the stencil buffer wherever they are on screen; rooms are drawn twice
 		// against that mark, opaque where no tunnel is behind and see-through where one is,
 		// so a room never hides the network.
-		const ghost = style.ghostOpacity ?? DEFAULT_GHOST;
 		const mesh = (geo: THREE.BufferGeometry, mat: THREE.Material, order: number) => {
 			const m = new THREE.Mesh(geo, mat);
 			m.renderOrder = order;
-			this.body.add(m);
+			body.add(m);
 			return m;
 		};
-		this.tunnelMat = null;
-		if (!tunnels.empty) {
-			this.tunnelMat = new THREE.MeshLambertMaterial({
+		let tunnelMat: THREE.MeshLambertMaterial | null = null;
+		if (out.tunnels) {
+			tunnelMat = new THREE.MeshLambertMaterial({
 				vertexColors: true,
 				color: this.tunnelTint ?? 0xffffff,
 				stencilWrite: true,
@@ -457,24 +407,65 @@ export class Layer implements MapLayer {
 				stencilFunc: THREE.AlwaysStencilFunc,
 				stencilZPass: THREE.ReplaceStencilOp
 			});
-			mesh(tunnels.build(), this.tunnelMat, 1);
+			mesh(toGeometry(out.tunnels), tunnelMat, 1);
 		}
 		const solidMats = ghostedPair((p) => new THREE.MeshLambertMaterial(p), ghost);
 		const glowMats = ghostedPair((p) => new THREE.MeshBasicMaterial(p), ghost);
-		for (const [part, { solid, glow }] of builders) {
+		for (const { part, solid, glow } of out.parts) {
 			const objs: THREE.Object3D[] = [];
-			for (const [b, mats] of [
+			for (const [arrays, mats] of [
 				[solid, solidMats],
 				[glow, glowMats]
 			] as const) {
-				if (b.empty) continue;
-				const geo = b.build();
+				if (!arrays) continue;
+				const geo = toGeometry(arrays);
 				mats.forEach((m, i) => objs.push(mesh(geo, m, 2 + i)));
 			}
+			parts.set(part, objs);
+		}
+		return { body, parts, tunnelMat };
+	}
+
+	/** Put a prepared body on screen in place of the current one. */
+	private swapBody(next: ReturnType<Layer['makeBody']>) {
+		disposeTree(this.body);
+		this.object.remove(this.body);
+		this.body = next.body;
+		this.object.add(this.body);
+		this.parts = next.parts;
+		this.tunnelMat = next.tunnelMat;
+		// The tint or hidden parts may have changed while it was being built.
+		this.tunnelMat?.color.set(this.tunnelTint ?? 0xffffff);
+		for (const [part, objs] of this.parts) {
 			const visible = !this.hiddenParts.has(part);
 			for (const o of objs) o.visible = visible;
-			this.parts.set(part, objs);
 		}
-		this.buildRaised();
+	}
+
+	/** Raised rooms are few, so they are built right away on the main thread. */
+	private buildRaised() {
+		disposeTree(this.raisedBody);
+		this.raisedBody.clear();
+		this.raisedParts.clear();
+		const rooms = this.raised.rooms.map((r) => this.plain[r.id]).filter((p): p is PlainRoom => !!p);
+		if (!rooms.length) return;
+		const out = buildMeshes(this.meshInput(rooms, false));
+		// Transparent (at full opacity) so they sort after transparent overlays at a lower order.
+		const params = { vertexColors: true, transparent: true, opacity: 1, depthWrite: true };
+		for (const { part, solid, glow } of out.parts) {
+			const objs: THREE.Object3D[] = [];
+			for (const [arrays, make] of [
+				[solid, () => new THREE.MeshLambertMaterial(params)],
+				[glow, () => new THREE.MeshBasicMaterial(params)]
+			] as const) {
+				if (!arrays) continue;
+				const m = new THREE.Mesh(toGeometry(arrays), make());
+				m.renderOrder = this.raised.order;
+				m.visible = !this.hiddenParts.has(part);
+				this.raisedBody.add(m);
+				objs.push(m);
+			}
+			this.raisedParts.set(part, objs);
+		}
 	}
 }

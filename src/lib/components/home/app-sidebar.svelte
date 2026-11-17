@@ -3,11 +3,18 @@
 	import * as Avatar from '#lib/components/ui/avatar/index.js';
 	import { ScrollArea } from '#lib/components/ui/scroll-area/index.js';
 	import { Separator } from '#lib/components/ui/separator/index.js';
+	import SicknessScale from './sickness-scale.svelte';
+	import { home } from './home-state.svelte.js';
 
 	// Placeholder entries until real data is wired in.
 	const items = [
 		{ id: 'item-1', title: 'Item 1', subtitle: 'Placeholder', body: 'Details for item 1.' },
-		{ id: 'item-2', title: 'Item 2', subtitle: 'Placeholder', body: 'Details for item 2.' },
+		{
+			id: 'item-2',
+			title: 'Lung sickness',
+			subtitle: 'Reported cases by block',
+			body: 'Each block is coloured by the share of its reported residents who are sick. Outbreaks start on the upper levels and spread down.'
+		},
 		{ id: 'item-3', title: 'Item 3', subtitle: 'Placeholder', body: 'Details for item 3.' },
 		{ id: 'item-4', title: 'Item 4', subtitle: 'Placeholder', body: 'Details for item 4.' }
 	];
@@ -19,7 +26,7 @@
 	</header>
 	<Separator />
 	<ScrollArea class="min-h-0 flex-1">
-		<Accordion.Root type="multiple" class="flex flex-col gap-3 p-4">
+		<Accordion.Root type="single" bind:value={home.section} class="flex flex-col gap-3 p-4">
 			{#each items as item (item.id)}
 				<Accordion.Item value={item.id} class="rounded-lg border bg-card px-3">
 					<Accordion.Trigger class="items-center hover:no-underline">
@@ -35,6 +42,13 @@
 					</Accordion.Trigger>
 					<Accordion.Content>
 						<p class="text-muted-foreground">{item.body}</p>
+						{#if item.id === 'item-2'}
+							<div class="mt-3 flex flex-col gap-1 text-xs text-muted-foreground">
+								<span>Share of reported residents sick</span>
+								<SicknessScale />
+								<p class="text-[10px]">Simulated reports</p>
+							</div>
+						{/if}
 					</Accordion.Content>
 				</Accordion.Item>
 			{/each}

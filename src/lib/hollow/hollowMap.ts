@@ -15,7 +15,14 @@ import {
 	type TunnelMapView
 } from '#lib/map/index.js';
 import { FLOOR_CONFIG, LEVELS, SHAFTS } from './data.js';
-import { floorStyle, SHAFT_H, SHAFT_PART, shaftColors, TUNNEL_H } from './mapStyle.js';
+import {
+	floorStyle,
+	type MapLens,
+	SHAFT_H,
+	SHAFT_PART,
+	shaftColors,
+	TUNNEL_H
+} from './mapStyle.js';
 import type { Floor } from './world.js';
 
 const W = FLOOR_CONFIG.width;
@@ -107,6 +114,13 @@ export interface HollowMap {
 	/** Frame the whole all-levels stack (the view it opens on). */
 	frameStack(): void;
 	setPins(pins: Pin[]): void;
+	/**
+	 * Build a level's meshes ahead of time (in the background) so showing it later is
+	 * instant. Cheap to call again.
+	 */
+	preload(floor: Floor): void;
+	/** Repaint every level with a data lens (e.g. sickness), or back to the normal look. */
+	setLens(lens: MapLens | null): void;
 	/** Tint rooms on the shown floor (impact assessment); an empty list clears it. */
 	setImpact(rooms: { room: Room; color: string }[]): void;
 	flyTo(x: number, y: number, opts?: { distance?: number; heading?: Point; tilt?: number }): void;
@@ -118,6 +132,11 @@ export interface HollowMap {
 }
 
 const easeIn = (t: number) => t * t;
+/** Run when the page is idle (soon, at the latest). */
+const idle = (fn: () => void) =>
+	typeof requestIdleCallback === 'function'
+		? requestIdleCallback(fn, { timeout: 500 })
+		: setTimeout(fn, 30);
 const easeOut = (t: number) => 1 - (1 - t) * (1 - t);
 
 export function createHollowMap(container: HTMLElement, opts: HollowMapOptions): HollowMap {
@@ -136,15 +155,36 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 
 	// ── Floors ──────────────────────────────────────────────────────────────
 	let current: Floor | null = null;
+	let lens: MapLens | null = null;
+	const floors = new Map<number, Floor>();
+	// A lens already draws its tunnels near-black (see floorStyle), so it needs no tint.
+	const tunnelTint = () => (!lens && lastRoute ? ROUTE_DIM : null);
+	/** The lens each layer was last styled with. */
+	const styledWith = new Map<number, MapLens | null>();
+	/** Restyle a layer if the lens changed since it was built. */
+	const syncLens = (index: number) => {
+		const layer = map.layer(layerId(index));
+		const floor = floors.get(index);
+		if (!layer || !floor || styledWith.get(index) === lens) return;
+		styledWith.set(index, lens);
+		layer.setStyle(floorStyle(floor, lens));
+		layer.setTunnelTint(tunnelTint());
+	};
 	const layerFor = (floor: Floor): MapLayer => {
 		const existing = map.layer(layerId(floor.index));
-		if (existing) return existing;
+		if (existing) {
+			// Hidden levels catch up with a lens change lazily, at the latest when shown.
+			syncLens(floor.index);
+			return existing;
+		}
+		floors.set(floor.index, floor);
+		styledWith.set(floor.index, lens);
 		const layer = map.addLayer(layerId(floor.index), floor.map, {
-			style: floorStyle(floor),
+			style: floorStyle(floor, lens),
 			visible: false
 		});
 		// Things that ride with levels may name this one before it existed.
-		layer.setTunnelTint(lastRoute ? ROUTE_DIM : null);
+		layer.setTunnelTint(tunnelTint());
 		if (lastRoute?.legs.some((l) => l.level === floor.index)) self.setRoute(lastRoute);
 		return layer;
 	};
@@ -435,7 +475,7 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 			raisedLayers = [];
 			lastRoute = route;
 			// Dim every level's tunnels while a route is up, so the cyan stands out.
-			for (const l of map.layers()) l.setTunnelTint(route ? ROUTE_DIM : null);
+			for (const l of map.layers()) l.setTunnelTint(tunnelTint());
 			if (!route) return;
 			const border = '#ffffff';
 			const core = '#38d8f2';
@@ -598,6 +638,30 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 					layer: layerId(p.level ?? current?.index ?? 0)
 				})
 			);
+		},
+		setLens(next) {
+			if (next === lens) return;
+			lens = next;
+			// Whatever is on screen restyles now; hidden levels follow one per idle slot (or
+			// right away if they are shown first), so a toggle never does all levels at once.
+			const shown = map.layers().filter((l) => l.visible);
+			for (const l of shown) syncLens(levelOf(l.id));
+			const rest = [...floors.keys()].filter((i) => styledWith.get(i) !== lens);
+			const step = () => {
+				const i = rest.shift();
+				if (i === undefined || lens !== next) return;
+				syncLens(i);
+				idle(step);
+			};
+			idle(step);
+			// Outlines and raised rooms were sized from the old looks.
+			if (lastRoute) self.setRoute(lastRoute);
+		},
+		preload(floor) {
+			layerFor(floor);
+			// With every level in, the all-levels view's shaft columns can be built ahead too.
+			const crown = floors.get(0);
+			if (crown && floors.size === LEVELS.length) buildShaftColumns(crown);
 		},
 		setImpact(rooms) {
 			impact?.remove();
