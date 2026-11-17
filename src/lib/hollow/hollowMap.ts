@@ -104,6 +104,8 @@ export interface HollowMap {
 	setRoute(route: RouteDraw | null): void;
 	/** Stack every level at its depth (`floors` must hold all of them), or go back to one. */
 	setOverview(on: boolean, floors: Floor[]): void;
+	/** Frame the whole all-levels stack (the view it opens on). */
+	frameStack(): void;
 	setPins(pins: Pin[]): void;
 	/** Tint rooms on the shown floor (impact assessment); an empty list clears it. */
 	setImpact(rooms: { room: Room; color: string }[]): void;
@@ -190,18 +192,33 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 	};
 
 	// ── All-levels view: a plain veil dip that swaps the layout while covered ─
+	/** Whether the levels are stacked right now (flips when a dip swaps the layout). */
 	let overview = false;
-	let dip: { apply: () => void; start: number; applied: boolean } | null = null;
-	const startDip = (apply: () => void) => {
+	interface Dip {
+		/** The layout this dip lands on, applied while the veil is fully closed. */
+		stacked: boolean;
+		apply: () => void;
+		start: number;
+		applied: boolean;
+	}
+	let dip: Dip | null = null;
+	/** The layout the scene is in, or is about to swap to under a closing veil. */
+	const willStack = () => (dip && !dip.applied ? dip.stacked : overview);
+	/** Drop a running level slide, leaving its target level in place. */
+	const settleSlide = () => {
+		if (!transition) return;
+		showOnly(transition.to);
+		transition.to.set({ y: 0 });
+		transition = null;
+	};
+	const startDip = (stacked: boolean, apply: () => void) => {
 		// Finish any level slide first so the two animations never fight.
-		if (transition) {
-			showOnly(transition.to);
-			transition.to.set({ y: 0 });
-			transition = null;
-		}
-		if (dip && !dip.applied) dip.apply = apply;
+		settleSlide();
+		// A dip whose veil is still closing just retargets: the newest request wins.
+		if (dip && !dip.applied) Object.assign(dip, { stacked, apply });
 		else
 			dip = {
+				stacked,
 				apply,
 				start: performance.now() - Math.sqrt(veilLevel) * LEVEL_OUT_MS,
 				applied: false
@@ -360,10 +377,11 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 		map,
 		showFloor(floor, dir) {
 			const layer = layerFor(floor);
-			if (overview) {
-				// Leaving the all-levels view: dip, then show just this level.
+			if (overview || dip?.applied === false) {
+				// Leaving the all-levels view: dip, then show just this level. A dip that hasn't
+				// swapped the layout yet (into or out of the stack) is retargeted to this level.
 				current = floor;
-				startDip(() => {
+				startDip(false, () => {
 					overview = false;
 					map.camera.setElevation(0);
 					setFar(false);
@@ -376,12 +394,16 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 			const had = current;
 			current = floor;
 			if (same && !transition) return;
+			// Any dip left is lifting off a single level; the new change takes over its veil.
+			const busy = !!(transition || dip);
+			dip = null;
 			if (dir === 0 || !had) {
 				transition = null;
 				showOnly(layer);
 				layer.set({ y: 0 });
 				veilLevel = 0;
 				map.setVeil(0);
+				if (busy) opts.onTransition?.(false);
 				return;
 			}
 			// Whatever is on screen now is what slides away. Start the "out" phase where the
@@ -536,28 +558,33 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 			}
 		},
 		setOverview(on, floors) {
-			if (on === overview && !dip) return;
+			// Compare against where the scene is headed, not where it is: a second request
+			// during the dip must undo the first, not be dropped.
+			if (on === willStack()) return;
 			if (!on) {
 				if (current) self.showFloor(current, 0);
 				return;
 			}
 			// Build every level now, before the dip starts, so the swap can't stall.
 			const layers = floors.map((f) => layerFor(f));
-			startDip(() => {
+			startDip(true, () => {
 				overview = true;
 				map.camera.setElevation(STACK_MID);
 				setFar(true);
 				for (const l of layers) l.set({ visible: true, y: stackY(levelOf(l.id)) });
 				const crown = floors.find((f) => f.index === 0);
 				if (crown && floors.length === LEVELS.length) buildShaftColumns(crown);
-				// Pulled back and lifted a touch so the top levels clear the search/directions panel.
-				map.camera.flyTo({
-					x: W / 2,
-					y: H / 2,
-					distance: MAX_DISTANCE,
-					heading: { x: -0.55, y: -0.72 },
-					tilt: Math.asin(0.42 / Math.hypot(0.55, 0.42, 0.72))
-				});
+				self.frameStack();
+			});
+		},
+		frameStack() {
+			// Pulled back and lifted a touch so the top levels clear the search/directions panel.
+			map.camera.flyTo({
+				x: W / 2,
+				y: H / 2,
+				distance: MAX_DISTANCE,
+				heading: { x: -0.55, y: -0.72 },
+				tilt: Math.asin(0.42 / Math.hypot(0.55, 0.42, 0.72))
 			});
 		},
 		setPins(pins) {
