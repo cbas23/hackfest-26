@@ -12,6 +12,12 @@
 			Hollow
 		</a>
 		<a
+			href={resolve('/intel')}
+			class="rounded-lg bg-neutral-800 px-6 py-3 text-white hover:bg-neutral-700"
+		>
+			Intel
+		</a>
+		<a
 			href={resolve('/tunnel-gen')}
 			class="rounded-lg bg-neutral-800 px-6 py-3 text-white hover:bg-neutral-700"
 		>

@@ -1,4 +1,5 @@
 import { LEVELS } from '#lib/hollow/data.js';
+import { assessLevel } from './detect.js';
 import {
 	ANCHOR_CHECK,
 	BASELINE_PATIENTS,
@@ -127,6 +128,52 @@ export function validateHistory(history: WeeklyRecord[]): string[] {
 	for (const [isoWeek, value] of ANCHOR_CHECK) {
 		const w = history.find((h) => h.level === 'L3' && h.isoWeek === isoWeek);
 		if (w?.clinicPatients !== value) problems.push(`L3 week ${isoWeek}: expected ${value}`);
+	}
+
+	return problems;
+}
+
+/**
+ * The detection logic must find the story in the data on its own: an alert on L3, a smaller
+ * rise on L4, and L2 staying normal as the control. Counts must never be summed into one number,
+ * and the Directorate gap must split cleanly into expected and unexplained parts.
+ */
+export function validateDetection(reports: Report[]): string[] {
+	const problems: string[] = [];
+	const l2 = assessLevel('L2', reports);
+	const l3 = assessLevel('L3', reports);
+	const l4 = assessLevel('L4', reports);
+
+	if (l3.patients?.severity !== 'alert') problems.push('L3: expected an alert on clinic patients');
+	if (!l3.patients?.exceedsIncident) problems.push('L3: expected to exceed the past incident');
+	if (l3.inhalers?.severity !== 'alert') problems.push('L3: expected an alert on inhaler use');
+	if (l4.patients?.severity !== 'watch') problems.push('L4: expected "watch", not an alert');
+	if (l2.patients?.severity !== 'normal') problems.push('L2: the control level should be normal');
+
+	for (const a of [l2, l3, l4]) {
+		const { verified, likely, high } = a.range;
+		if (!(verified <= high && likely <= high)) problems.push(`${a.level}: range is out of order`);
+		const g = a.gap;
+		const split = g && g.confirmed <= g.expectedConfirmed;
+		if (g && split && g.confirmed + g.unexplainedGap + g.expectedGap !== g.local) {
+			problems.push(`${a.level}: gap parts don't add up to local patients`);
+		}
+	}
+	if (l3.range.likely >= l3.range.high)
+		problems.push('L3: overlapping sources should give a range');
+	if (!l3.gap?.flagged) problems.push('L3: unexplained Directorate gap should be flagged');
+	if (!l3.gap?.consistentWithHistory) problems.push('L3: gap should match the long-run pattern');
+	if (l2.gap?.flagged) problems.push('L2: the control level should not be flagged');
+
+	if (l3.completeness.complete) problems.push('L3: blackout week should be marked incomplete');
+	if (!l3.completeness.lateReports.includes('DOC-COM-005')) {
+		problems.push('L3: DOC-COM-005 should be flagged as late');
+	}
+	for (const level of LEVELS) {
+		const a = assessLevel(level.code as LevelCode, reports);
+		if (!a.completeness.hasClinicReport && a.completeness.complete) {
+			problems.push(`${level.code}: no clinic report must read as incomplete, not zero`);
+		}
 	}
 
 	return problems;
