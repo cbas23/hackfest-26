@@ -10,6 +10,7 @@ const gitignorePath = path.resolve(import.meta.dirname, '.gitignore');
 
 export default defineConfig(
 	includeIgnoreFile(gitignorePath),
+	{ ignores: ['.agents/**', '.claude/skills/**'] },
 	js.configs.recommended,
 	ts.configs.recommended,
 	svelte.configs.recommended,
@@ -32,6 +33,11 @@ export default defineConfig(
 				parser: ts.parser
 			}
 		}
+	},
+	{
+		// shadcn-svelte components forward caller-provided hrefs; callers resolve() them.
+		files: ['src/lib/components/ui/**'],
+		rules: { 'svelte/no-navigation-without-resolve': 'off' }
 	},
 	{
 		// Override or add rule settings here, such as:
