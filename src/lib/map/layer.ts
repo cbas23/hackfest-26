@@ -115,6 +115,8 @@ export interface MapLayer {
 	setStyle(style: LayerStyle): void;
 	/** Show or hide a named part (see RoomLook.part). */
 	setPartVisible(part: string, visible: boolean): void;
+	/** Whether a named part is currently shown. */
+	partVisible(part: string): boolean;
 	/**
 	 * Draw these rooms a second time, fully opaque and in the transparent pass at `order`
 	 * (default 8), so they cover overlays drawn before them even when those overlays ignore
@@ -203,6 +205,10 @@ export class Layer implements MapLayer {
 	setStyle(style: LayerStyle) {
 		this.style = style;
 		this.build();
+	}
+
+	partVisible(part: string) {
+		return !this.hiddenParts.has(part);
 	}
 
 	setPartVisible(part: string, visible: boolean) {

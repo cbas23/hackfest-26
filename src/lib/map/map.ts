@@ -241,7 +241,7 @@ export function createMap(container: HTMLElement, options: MapOptions = {}): Tun
 			let nearest = Infinity;
 			for (const r of map.rooms) {
 				const look = layer.lookOf(r);
-				if (!look || look.pickable === false) continue;
+				if (!look || look.pickable === false || !layer.partVisible(look.part ?? '')) continue;
 				const base = ly - layer.sinkOf(r);
 				box.min.set(space.wx(r.x), base, space.wz(r.y));
 				box.max.set(space.wx(r.x) + r.w, base + look.height, space.wz(r.y) + r.h);
@@ -253,16 +253,16 @@ export function createMap(container: HTMLElement, options: MapOptions = {}): Tun
 				}
 			}
 			plane.constant = -(ly + layer.tunnelHeight);
-			if (!raycaster.ray.intersectPlane(plane, hit)) {
-				if (room) return { layer: layer.id, tile: { ...room.door }, room };
-				continue;
-			}
-			const tile = { x: Math.floor(space.tx(hit.x)), y: Math.floor(space.ty(hit.z)) };
-			if (room && nearest < hit.distanceToSquared(origin)) return { layer: layer.id, tile, room };
-			if ((map.grid[tile.y]?.[tile.x] ?? 'void') === 'void') {
-				if (room) return { layer: layer.id, tile, room };
-				continue;
-			}
+			const onPlane = raycaster.ray.intersectPlane(plane, hit) !== null;
+			const tile = onPlane
+				? { x: Math.floor(space.tx(hit.x)), y: Math.floor(space.ty(hit.z)) }
+				: null;
+			// Only drawn surfaces stop the ray: tunnels and rooms. Rock and void aren't drawn,
+			// so a stacked layer below shows (and picks) through them.
+			const road = tile !== null && map.grid[tile.y]?.[tile.x] === 'road';
+			if (room && (!road || nearest < hit.distanceToSquared(origin)))
+				return { layer: layer.id, tile: tile ?? { ...room.door }, room };
+			if (!tile || !road) continue;
 			const under = map.rooms[map.roomAt[tile.y][tile.x]];
 			const look = under ? layer.lookOf(under) : null;
 			return {
@@ -441,9 +441,15 @@ export function createMap(container: HTMLElement, options: MapOptions = {}): Tun
 			)
 				fly = null;
 		}
-		controls.target.x = THREE.MathUtils.clamp(controls.target.x, bounds.minX, bounds.maxX);
-		controls.target.z = THREE.MathUtils.clamp(controls.target.z, bounds.minZ, bounds.maxZ);
-		if (!fly) controls.target.y = elevation;
+		// Keep the target over the map (and at the orbit height). The camera moves with it,
+		// so hitting an edge stops the pan instead of swinging the view and zoom around.
+		const tx = THREE.MathUtils.clamp(controls.target.x, bounds.minX, bounds.maxX);
+		const tz = THREE.MathUtils.clamp(controls.target.z, bounds.minZ, bounds.maxZ);
+		const ty = fly ? controls.target.y : elevation;
+		camera.position.x += tx - controls.target.x;
+		camera.position.y += ty - controls.target.y;
+		camera.position.z += tz - controls.target.z;
+		controls.target.set(tx, ty, tz);
 		controls.update();
 
 		emit('frame', performance.now(), dt);

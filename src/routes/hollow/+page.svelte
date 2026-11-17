@@ -158,6 +158,8 @@
 			true,
 			LEVELS.map((_, i) => hollow.floor(i))
 		);
+		// That dug every remaining floor; let search and the loading hint know.
+		dug = LEVELS.length;
 	}
 
 	// ── Selection ────────────────────────────────────────────────────────────
@@ -193,6 +195,9 @@
 			if (pick) goTo(pick.level);
 			return;
 		}
+		// Mid-dip the scene can still show another level (or the stack); room ids only mean
+		// something on their own level, so ignore picks that landed elsewhere.
+		if (pick && pick.level !== levelIndex) return;
 		const p = placeOf(floor, pick?.room ?? null);
 		if (picking && p) {
 			if (picking === 'from') from = p;
@@ -244,8 +249,10 @@
 		return [minX, minY, maxX, maxY] as const;
 	}
 
+	/** F: frame the whole level, or the whole stack in the all-levels view. */
 	function fitFloor() {
-		scene?.fitBounds(...cityBounds(floor));
+		if (overview) scene?.frameStack();
+		else scene?.fitBounds(...cityBounds(floor));
 	}
 
 	/** Frame the route's leg on a floor (the shown one by default), switching to it. */
@@ -467,7 +474,7 @@
 	onMount(() => {
 		const s = createHollowMap(container, {
 			onHover: (p) => {
-				const r = overview ? null : (p?.room ?? null);
+				const r = overview || (p && p.level !== levelIndex) ? null : (p?.room ?? null);
 				if (r !== hover) {
 					hover = r;
 					s.setHover(r);
@@ -888,8 +895,8 @@
 		<button
 			class="grid h-10 w-10 place-items-center rounded-full border border-white/10 bg-[#1f2638]/95 text-slate-200 shadow-xl hover:bg-[#262e44]"
 			onclick={fitFloor}
-			title="Show whole level (F)"
-			aria-label="Show whole level"
+			title={overview ? 'Show all levels (F)' : 'Show whole level (F)'}
+			aria-label={overview ? 'Show all levels' : 'Show whole level'}
 		>
 			<svg viewBox="0 0 24 24" class="h-5 w-5 fill-current" aria-hidden="true">
 				<path d="M4 9V4h5v2H6v3zm11-5h5v5h-2V6h-3zM4 15h2v3h3v2H4zm14 0h2v5h-5v-2h3z" />
