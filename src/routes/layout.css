@@ -2,128 +2,209 @@
 @import 'tw-animate-css';
 @import 'shadcn-svelte/tailwind.css';
 @import '@fontsource-variable/inter';
+@import '@fontsource-variable/source-serif-4';
+@import '@fontsource-variable/jetbrains-mono';
 
 @custom-variant dark (&:is(.dark *));
 
 :root {
-	--background: oklch(1 0 0);
-	--foreground: oklch(0.145 0 0);
+	--background: oklch(0.9383 0.0042 236.4993);
+	--foreground: oklch(0.3211 0 0);
 	--card: oklch(1 0 0);
-	--card-foreground: oklch(0.145 0 0);
+	--card-foreground: oklch(0.3211 0 0);
 	--popover: oklch(1 0 0);
-	--popover-foreground: oklch(0.145 0 0);
-	--primary: oklch(0.205 0 0);
-	--primary-foreground: oklch(0.985 0 0);
-	--secondary: oklch(0.97 0 0);
-	--secondary-foreground: oklch(0.205 0 0);
-	--muted: oklch(0.97 0 0);
-	--muted-foreground: oklch(0.556 0 0);
-	--accent: oklch(0.97 0 0);
-	--accent-foreground: oklch(0.205 0 0);
-	--destructive: oklch(0.577 0.245 27.325);
-	--success: #059669;
-	--success-foreground: #ffffff;
-	--border: oklch(0.922 0 0);
-	--input: oklch(0.922 0 0);
-	--ring: oklch(0.708 0 0);
-	--chart-1: #5d6599;
-	--chart-2: #1f8a7d;
-	--chart-3: #c2703a;
-	--chart-4: #0284c7;
-	--chart-5: #7c3aed;
-	--radius: 0.625rem;
-	--sidebar: oklch(0.985 0 0);
-	--sidebar-foreground: oklch(0.145 0 0);
-	--sidebar-primary: oklch(0.205 0 0);
-	--sidebar-primary-foreground: oklch(0.985 0 0);
-	--sidebar-accent: oklch(0.97 0 0);
-	--sidebar-accent-foreground: oklch(0.205 0 0);
-	--sidebar-border: oklch(0.922 0 0);
-	--sidebar-ring: oklch(0.708 0 0);
+	--popover-foreground: oklch(0.3211 0 0);
+	--primary: oklch(0.6397 0.172 36.4421);
+	--primary-foreground: oklch(1 0 0);
+	--secondary: oklch(0.967 0.0029 264.5419);
+	--secondary-foreground: oklch(0.4461 0.0263 256.8018);
+	--muted: oklch(0.9846 0.0017 247.8389);
+	--muted-foreground: oklch(0.551 0.0234 264.3637);
+	--accent: oklch(0.9119 0.0222 243.8174);
+	--accent-foreground: oklch(0.3791 0.1378 265.5222);
+	--destructive: oklch(0.6368 0.2078 25.3313);
+	--destructive-foreground: oklch(1 0 0);
+	/* Status colour for healthy readings (e.g. a powered block); not part of the base theme. */
+	--success: oklch(0.596 0.127 163.2);
+	--success-foreground: oklch(1 0 0);
+	--border: oklch(0.9022 0.0052 247.8822);
+	--input: oklch(0.97 0.0029 264.542);
+	--ring: oklch(0.6397 0.172 36.4421);
+	--chart-1: oklch(0.7156 0.0605 248.6845);
+	--chart-2: oklch(0.7875 0.0917 35.9616);
+	--chart-3: oklch(0.5778 0.0759 254.1573);
+	--chart-4: oklch(0.5016 0.0849 259.4902);
+	--chart-5: oklch(0.4241 0.0952 264.0306);
+	--sidebar: oklch(0.903 0.0046 258.3257);
+	--sidebar-foreground: oklch(0.3211 0 0);
+	--sidebar-primary: oklch(0.6397 0.172 36.4421);
+	--sidebar-primary-foreground: oklch(1 0 0);
+	--sidebar-accent: oklch(0.9119 0.0222 243.8174);
+	--sidebar-accent-foreground: oklch(0.3791 0.1378 265.5222);
+	--sidebar-border: oklch(0.9276 0.0058 264.5313);
+	--sidebar-ring: oklch(0.6397 0.172 36.4421);
+	--font-sans: 'Inter Variable', Inter, sans-serif;
+	--font-serif: 'Source Serif 4 Variable', 'Source Serif 4', serif;
+	--font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', monospace;
+	--radius: 0.75rem;
+	--shadow-x: 0px;
+	--shadow-y: 1px;
+	--shadow-blur: 3px;
+	--shadow-spread: 0px;
+	--shadow-opacity: 0.1;
+	--shadow-color: #1a1a1a;
+	--shadow-2xs: 0px 1px 3px 0px hsl(0 0% 10.1961% / 0.05);
+	--shadow-xs: 0px 1px 3px 0px hsl(0 0% 10.1961% / 0.05);
+	--shadow-sm: 0px 1px 3px 0px hsl(0 0% 10.1961% / 0.1), 0px 1px 2px -1px hsl(0 0% 10.1961% / 0.1);
+	--shadow: 0px 1px 3px 0px hsl(0 0% 10.1961% / 0.1), 0px 1px 2px -1px hsl(0 0% 10.1961% / 0.1);
+	--shadow-md: 0px 1px 3px 0px hsl(0 0% 10.1961% / 0.1), 0px 2px 4px -1px hsl(0 0% 10.1961% / 0.1);
+	--shadow-lg: 0px 1px 3px 0px hsl(0 0% 10.1961% / 0.1), 0px 4px 6px -1px hsl(0 0% 10.1961% / 0.1);
+	--shadow-xl: 0px 1px 3px 0px hsl(0 0% 10.1961% / 0.1), 0px 8px 10px -1px hsl(0 0% 10.1961% / 0.1);
+	--shadow-2xl: 0px 1px 3px 0px hsl(0 0% 10.1961% / 0.25);
+	--tracking-normal: 0em;
+	--spacing: 0.25rem;
 }
 
-/* Dark is the only theme in use: tinted to the map's rock blue (#121726) so the chrome and
-   the 3D scene read as one surface. */
 .dark {
-	--background: #121726;
-	--foreground: #e3e7f4;
-	--card: #171d2f;
-	--card-foreground: #e3e7f4;
-	--popover: #171d2f;
-	--popover-foreground: #e3e7f4;
-	--primary: #c3cdee;
-	--primary-foreground: #121726;
-	--secondary: #1f2639;
-	--secondary-foreground: #e3e7f4;
-	--muted: #1f2639;
-	--muted-foreground: #8b94b4;
-	--accent: #232b42;
-	--accent-foreground: #e3e7f4;
-	--destructive: oklch(0.704 0.191 22.216);
-	/* Status colour for healthy readings (e.g. a powered block) */
-	--success: #34d399;
-	--success-foreground: #052e1c;
-	--border: #262e46;
-	--input: #2c3550;
-	--ring: #6f7bb0;
-	/* Map marker categories: block, farm, geothermal plant, shaft, spare */
-	--chart-1: #8b93c7;
-	--chart-2: #2fb3a3;
-	--chart-3: #e3965c;
-	--chart-4: #38bdf8;
-	--chart-5: #a78bfa;
-	--sidebar: #0e1220;
-	--sidebar-foreground: #e3e7f4;
-	--sidebar-primary: #c3cdee;
-	--sidebar-primary-foreground: #121726;
-	--sidebar-accent: #1b2236;
-	--sidebar-accent-foreground: #e3e7f4;
-	--sidebar-border: #222a40;
-	--sidebar-ring: #6f7bb0;
+	--background: oklch(0.2598 0.0306 262.6666);
+	--foreground: oklch(0.9219 0 0);
+	--card: oklch(0.3106 0.0301 268.6365);
+	--card-foreground: oklch(0.9219 0 0);
+	--popover: oklch(0.29 0.0249 268.3986);
+	--popover-foreground: oklch(0.9219 0 0);
+	--primary: oklch(0.6397 0.172 36.4421);
+	--primary-foreground: oklch(1 0 0);
+	--secondary: oklch(0.3095 0.0266 266.7132);
+	--secondary-foreground: oklch(0.9219 0 0);
+	--muted: oklch(0.3095 0.0266 266.7132);
+	--muted-foreground: oklch(0.7155 0 0);
+	--accent: oklch(0.338 0.0589 267.5867);
+	--accent-foreground: oklch(0.8823 0.0571 254.1284);
+	--destructive: oklch(0.6368 0.2078 25.3313);
+	--destructive-foreground: oklch(1 0 0);
+	--success: oklch(0.765 0.149 163.2);
+	--success-foreground: oklch(0.26 0.05 163);
+	--border: oklch(0.3843 0.0301 269.7337);
+	--input: oklch(0.3843 0.0301 269.7337);
+	--ring: oklch(0.6397 0.172 36.4421);
+	--chart-1: oklch(0.7156 0.0605 248.6845);
+	--chart-2: oklch(0.7693 0.0876 34.1875);
+	--chart-3: oklch(0.5778 0.0759 254.1573);
+	--chart-4: oklch(0.5016 0.0849 259.4902);
+	--chart-5: oklch(0.4241 0.0952 264.0306);
+	--sidebar: oklch(0.31 0.0283 267.7408);
+	--sidebar-foreground: oklch(0.9219 0 0);
+	--sidebar-primary: oklch(0.6397 0.172 36.4421);
+	--sidebar-primary-foreground: oklch(1 0 0);
+	--sidebar-accent: oklch(0.338 0.0589 267.5867);
+	--sidebar-accent-foreground: oklch(0.8823 0.0571 254.1284);
+	--sidebar-border: oklch(0.3843 0.0301 269.7337);
+	--sidebar-ring: oklch(0.6397 0.172 36.4421);
+}
+
+/*
+ * The 3D map's palette, derived from the theme tokens above. `src/lib/hollow/theme.ts` reads
+ * these (and repaints the map when they change), so the scene always matches the chrome
+ * around it. Declared on every element so the `var()`s resolve against the active theme.
+ */
+:root,
+.dark {
+	--map-background: var(--background);
+	/* Tunnels: the lightest surface, so the street network reads first. */
+	--map-tunnel: color-mix(in oklch, var(--chart-1) 60%, var(--foreground));
+	--map-tunnel-wall: var(--chart-1);
+	/* Housing blocks, lit and in blackout. */
+	--map-room-wall: var(--chart-3);
+	--map-room-roof: var(--chart-4);
+	--map-room-dark-wall: var(--chart-5);
+	--map-room-dark-roof: color-mix(in oklch, var(--chart-5) 65%, var(--background));
+	/* Farms under grow-lamps. */
+	--map-farm-wall: color-mix(in oklch, var(--success) 50%, var(--background));
+	--map-farm-roof: color-mix(in oklch, var(--success) 38%, var(--background));
+	--map-crop: color-mix(in oklch, var(--success) 85%, var(--background));
+	/* Geothermal plants glow in the brand colour. */
+	--map-plant-wall: color-mix(in oklch, var(--chart-5) 80%, var(--chart-2));
+	--map-plant-roof: color-mix(in oklch, var(--chart-5) 65%, var(--background));
+	--map-plant-core: var(--primary);
+	/* Deeper (hotter) levels drift a little toward this. */
+	--map-warm: var(--chart-2);
+	/* Shafts: base colour mixed with their status, and the dark well at the top. */
+	--map-shaft: var(--chart-4);
+	--map-well: var(--background);
+	/* Under a data lens: the receding chambers and the flat tunnel trace. */
+	--map-muted-wall: var(--border);
+	--map-muted-roof: var(--secondary);
+	--map-lens-tunnel: color-mix(in oklch, var(--background) 80%, black);
+	/* Sickness lens, low → high. */
+	--map-sick-1: color-mix(in oklch, var(--primary) 6%, var(--border));
+	--map-sick-2: color-mix(in oklch, var(--primary) 35%, var(--border));
+	--map-sick-3: color-mix(in oklch, var(--primary) 65%, var(--border));
+	--map-sick-4: var(--primary);
+	--map-sick-5: color-mix(in oklch, var(--primary) 55%, var(--chart-2));
+	/* Routes, hover/selection outlines and the radar sweep. */
+	--map-route: var(--primary);
+	--map-route-border: var(--foreground);
+	--map-route-dim: color-mix(in oklch, var(--muted-foreground) 80%, var(--background));
+	--map-highlight: var(--foreground);
+	--map-radar: var(--success);
+	/* Scene lighting: sky and ground of the hemisphere light. */
+	--map-light-sky: color-mix(in oklch, var(--accent-foreground) 55%, white);
+	--map-light-ground: var(--background);
 }
 
 @theme inline {
-	--font-sans: 'Inter Variable', sans-serif;
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-destructive-foreground: var(--destructive-foreground);
 	--color-success: var(--success);
 	--color-success-foreground: var(--success-foreground);
-	--color-sidebar-ring: var(--sidebar-ring);
-	--color-sidebar-border: var(--sidebar-border);
-	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-	--color-sidebar-accent: var(--sidebar-accent);
-	--color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-	--color-sidebar-primary: var(--sidebar-primary);
-	--color-sidebar-foreground: var(--sidebar-foreground);
-	--color-sidebar: var(--sidebar);
-	--color-chart-5: var(--chart-5);
-	--color-chart-4: var(--chart-4);
-	--color-chart-3: var(--chart-3);
-	--color-chart-2: var(--chart-2);
-	--color-chart-1: var(--chart-1);
-	--color-ring: var(--ring);
-	--color-input: var(--input);
 	--color-border: var(--border);
-	--color-destructive: var(--destructive);
-	--color-accent-foreground: var(--accent-foreground);
-	--color-accent: var(--accent);
-	--color-muted-foreground: var(--muted-foreground);
-	--color-muted: var(--muted);
-	--color-secondary-foreground: var(--secondary-foreground);
-	--color-secondary: var(--secondary);
-	--color-primary-foreground: var(--primary-foreground);
-	--color-primary: var(--primary);
-	--color-popover-foreground: var(--popover-foreground);
-	--color-popover: var(--popover);
-	--color-card-foreground: var(--card-foreground);
-	--color-card: var(--card);
-	--color-foreground: var(--foreground);
-	--color-background: var(--background);
-	--radius-sm: calc(var(--radius) * 0.6);
-	--radius-md: calc(var(--radius) * 0.8);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+	--color-chart-1: var(--chart-1);
+	--color-chart-2: var(--chart-2);
+	--color-chart-3: var(--chart-3);
+	--color-chart-4: var(--chart-4);
+	--color-chart-5: var(--chart-5);
+	--color-sidebar: var(--sidebar);
+	--color-sidebar-foreground: var(--sidebar-foreground);
+	--color-sidebar-primary: var(--sidebar-primary);
+	--color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+	--color-sidebar-accent: var(--sidebar-accent);
+	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+	--color-sidebar-border: var(--sidebar-border);
+	--color-sidebar-ring: var(--sidebar-ring);
+
+	--font-sans: var(--font-sans);
+	--font-mono: var(--font-mono);
+	--font-serif: var(--font-serif);
+
+	--radius-sm: calc(var(--radius) - 4px);
+	--radius-md: calc(var(--radius) - 2px);
 	--radius-lg: var(--radius);
-	--radius-xl: calc(var(--radius) * 1.4);
-	--radius-2xl: calc(var(--radius) * 1.8);
-	--radius-3xl: calc(var(--radius) * 2.2);
-	--radius-4xl: calc(var(--radius) * 2.6);
+	--radius-xl: calc(var(--radius) + 4px);
+
+	--shadow-2xs: var(--shadow-2xs);
+	--shadow-xs: var(--shadow-xs);
+	--shadow-sm: var(--shadow-sm);
+	--shadow: var(--shadow);
+	--shadow-md: var(--shadow-md);
+	--shadow-lg: var(--shadow-lg);
+	--shadow-xl: var(--shadow-xl);
+	--shadow-2xl: var(--shadow-2xl);
 }
 
 @layer base {

@@ -76,13 +76,13 @@ export function sicknessOf(floor: Floor): (BlockSickness | null)[] {
 	return out;
 }
 
-/** Five sickness steps, dark gray (few sick) to bright orange (nearly all reported sick). */
+/** Five sickness steps, dark gray (few sick) to bright orange (nearly all reported sick); the colours are the `--map-sick-*` CSS variables. */
 export const SICK_STEPS = [
-	{ color: '#3a3d45', range: '0–20%', short: '<20%' },
-	{ color: '#6e4b37', range: '20–40%', short: '20%+' },
-	{ color: '#a85a26', range: '40–60%', short: '40%+' },
-	{ color: '#e06c12', range: '60–80%', short: '60%+' },
-	{ color: '#ff9a2e', range: '80–100%', short: '80%+' }
+	{ color: 'var(--map-sick-1)', range: '0–20%', short: '<20%' },
+	{ color: 'var(--map-sick-2)', range: '20–40%', short: '20%+' },
+	{ color: 'var(--map-sick-3)', range: '40–60%', short: '40%+' },
+	{ color: 'var(--map-sick-4)', range: '60–80%', short: '60%+' },
+	{ color: 'var(--map-sick-5)', range: '80–100%', short: '80%+' }
 ] as const;
 
 /** Which of the five steps a 0–1 score falls in. */

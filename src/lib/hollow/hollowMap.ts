@@ -24,11 +24,11 @@ import {
 	shaftColors,
 	TUNNEL_H
 } from './mapStyle.js';
+import { onThemeChange, tokenHex } from './theme.js';
 import type { Floor } from './world.js';
 
 const W = FLOOR_CONFIG.width;
 const H = FLOOR_CONFIG.height;
-const BACKGROUND = '#121726';
 /** Furthest the camera may pull back; scaled to the 500×400 floors. */
 const MAX_DISTANCE = 1040;
 const NEAR_FOG = { near: 520, far: 1440 };
@@ -63,8 +63,6 @@ const ROUTE_RESCALE = 0.12;
  * It still writes depth, so the raised end buildings drawn after it can cover it.
  */
 const ROUTE_ORDER = 5;
-/** Tint multiplied into the tunnels while a route is shown, for contrast with the cyan. */
-const ROUTE_DIM = '#737892';
 
 export const layerId = (level: number) => `floor-${level}`;
 const levelOf = (id: string) => Number(id.slice('floor-'.length));
@@ -149,8 +147,11 @@ const idle = (fn: () => void) =>
 const easeOut = (t: number) => 1 - (1 - t) * (1 - t);
 
 export function createHollowMap(container: HTMLElement, opts: HollowMapOptions): HollowMap {
+	// Every colour comes from the `--map-*` CSS variables (see theme.ts), so the scene matches
+	// the UI around it and repaints when the theme changes.
 	const map = createMap(container, {
-		background: BACKGROUND,
+		background: tokenHex('map-background'),
+		light: { sky: tokenHex('map-light-sky'), ground: tokenHex('map-light-ground') },
 		origin: { x: W / 2, y: H / 2 },
 		fog: NEAR_FOG,
 		camera: { maxDistance: Math.max(MAX_DISTANCE, opts.stackDistance ?? 0) }
@@ -167,15 +168,19 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 	let lens: MapLens | null = null;
 	const floors = new Map<number, Floor>();
 	// A lens already draws its tunnels near-black (see floorStyle), so it needs no tint.
-	const tunnelTint = () => (!lens && lastRoute ? ROUTE_DIM : null);
-	/** The lens each layer was last styled with. */
-	const styledWith = new Map<number, MapLens | null>();
-	/** Restyle a layer if the lens changed since it was built. */
+	// Tint multiplied into the tunnels while a route is shown, for contrast with the route.
+	const tunnelTint = () => (!lens && lastRoute ? tokenHex('map-route-dim') : null);
+	/** Bumped on every theme change, so each layer knows its colours are stale. */
+	let themeVersion = 0;
+	const styleKey = () => `${lens}@${themeVersion}`;
+	/** The lens and theme each layer was last styled with. */
+	const styledWith = new Map<number, string>();
+	/** Restyle a layer if the lens or theme changed since it was built. */
 	const syncLens = (index: number) => {
 		const layer = map.layer(layerId(index));
 		const floor = floors.get(index);
-		if (!layer || !floor || styledWith.get(index) === lens) return;
-		styledWith.set(index, lens);
+		if (!layer || !floor || styledWith.get(index) === styleKey()) return;
+		styledWith.set(index, styleKey());
 		layer.setStyle(floorStyle(floor, lens));
 		layer.setTunnelTint(tunnelTint());
 	};
@@ -187,7 +192,7 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 			return existing;
 		}
 		floors.set(floor.index, floor);
-		styledWith.set(floor.index, lens);
+		styledWith.set(floor.index, styleKey());
 		const layer = map.addLayer(layerId(floor.index), floor.map, {
 			style: floorStyle(floor, lens),
 			visible: false
@@ -369,11 +374,13 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 	});
 
 	// ── Highlights ──────────────────────────────────────────────────────────
-	const outline = (color: string, opacity: number) => {
+	const outline = (opacity: number) => {
 		let handle: OverlayHandle<OutlineOverlay> | null = null;
 		let shown = false;
+		let last: Room | null = null;
 		return {
 			set(r: Room | null) {
+				last = r;
 				const layer = current && map.layer(layerId(current.index));
 				const look = r && layer?.lookOf(r);
 				shown = !!look;
@@ -393,21 +400,28 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 					handle = map.addOverlay({
 						type: 'outline',
 						...spec,
-						color,
+						color: tokenHex('map-highlight'),
 						opacity,
 						visible: !overview
 					});
 			},
 			sync() {
 				handle?.setVisible(shown && !overview);
+			},
+			/** Rebuild in the current theme colours. */
+			repaint() {
+				handle?.remove();
+				handle = null;
+				this.set(last);
 			}
 		};
 	};
-	const hover = outline('#e2e8f0', 0.55);
-	const selection = outline('#ffffff', 1);
+	const hover = outline(0.55);
+	const selection = outline(1);
 	let impact: OverlayHandle | null = null;
 	let levelTints: OverlayHandle[] = [];
 	let radar: OverlayHandle | null = null;
+	let lastRadar: Parameters<HollowMap['setRadar']>[0] = null;
 	let radarRaf = 0;
 
 	// ── Pins ────────────────────────────────────────────────────────────────
@@ -486,11 +500,11 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 			for (const l of raisedLayers) l.raise([]);
 			raisedLayers = [];
 			lastRoute = route;
-			// Dim every level's tunnels while a route is up, so the cyan stands out.
+			// Dim every level's tunnels while a route is up, so the route stands out.
 			for (const l of map.layers()) l.setTunnelTint(tunnelTint());
 			if (!route) return;
-			const border = '#ffffff';
-			const core = '#38d8f2';
+			const border = tokenHex('map-route-border');
+			const core = tokenHex('map-route');
 			// Widths in tiles: the tunnel itself up close, a fixed pixel size when far away.
 			const px = worldPerPixel();
 			routeScaleAt = px;
@@ -654,20 +668,7 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 		setLens(next) {
 			if (next === lens) return;
 			lens = next;
-			// Whatever is on screen restyles now; hidden levels follow one per idle slot (or
-			// right away if they are shown first), so a toggle never does all levels at once.
-			const shown = map.layers().filter((l) => l.visible);
-			for (const l of shown) syncLens(levelOf(l.id));
-			const rest = [...floors.keys()].filter((i) => styledWith.get(i) !== lens);
-			const step = () => {
-				const i = rest.shift();
-				if (i === undefined || lens !== next) return;
-				syncLens(i);
-				idle(step);
-			};
-			idle(step);
-			// Outlines and raised rooms were sized from the old looks.
-			if (lastRoute) self.setRoute(lastRoute);
+			restyleAll();
 		},
 		preload(floor) {
 			layerFor(floor);
@@ -728,6 +729,7 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 		resetNorth: () => map.camera.resetNorth(),
 		setPan: (x, y) => map.camera.setPan(x, y),
 		setRadar(r) {
+			lastRadar = r;
 			cancelAnimationFrame(radarRaf);
 			radar?.remove();
 			radar = null;
@@ -735,7 +737,7 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 			const layer = map.layer(layerId(r.level));
 			if (!layer) return;
 			const R = r.radius;
-			const color = new THREE.Color(r.color ?? '#34d399');
+			const color = new THREE.Color(r.color ?? tokenHex('map-radar'));
 			const mat = (opacity: number) =>
 				new THREE.MeshBasicMaterial({
 					color,
@@ -795,9 +797,41 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 		},
 		dispose() {
 			off();
+			offTheme();
 			cancelAnimationFrame(radarRaf);
 			map.dispose();
 		}
 	};
+
+	/**
+	 * Bring every level up to the current lens and theme: whatever is on screen restyles now;
+	 * hidden levels follow one per idle slot (or right away if they are shown first), so a
+	 * change never rebuilds all levels at once.
+	 */
+	function restyleAll() {
+		const key = styleKey();
+		for (const l of map.layers().filter((l) => l.visible)) syncLens(levelOf(l.id));
+		const rest = [...floors.keys()].filter((i) => styledWith.get(i) !== key);
+		const step = () => {
+			const i = rest.shift();
+			if (i === undefined || styleKey() !== key) return;
+			syncLens(i);
+			idle(step);
+		};
+		idle(step);
+		// Outlines and raised rooms were sized from the old looks.
+		if (lastRoute) self.setRoute(lastRoute);
+	}
+
+	const offTheme = onThemeChange(() => {
+		themeVersion++;
+		map.setBackground(tokenHex('map-background'));
+		map.setLight({ sky: tokenHex('map-light-sky'), ground: tokenHex('map-light-ground') });
+		for (const l of map.layers()) l.setTunnelTint(tunnelTint());
+		hover.repaint();
+		selection.repaint();
+		if (lastRadar && !lastRadar.color) self.setRadar(lastRadar);
+		restyleAll();
+	});
 	return self;
 }

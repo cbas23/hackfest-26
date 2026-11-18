@@ -4,12 +4,21 @@ import { hash01, shade, type LayerStyle, type Prop, type RoomLook } from '#lib/m
 import { FACILITY_INFO, LEVELS, SHAFTS, SHAFT_COLORS, type FacilityKind } from './data.js';
 import type { Floor } from './world.js';
 import { SICK_STEPS, sickStep, sicknessOf } from './sickness.js';
+import { token, type Token } from './theme.js';
 
 /** A data view painted over the map instead of its normal palette. */
 export type MapLens = 'sickness';
 
 /** Tunnels under a data lens: a flat, very dark trace just above the floor. */
-const LENS_TUNNEL = { top: '#181b24', wall: '#14161d', underside: '#0e1015', height: 0.06 };
+const lensTunnel = () => {
+	const top = token('map-lens-tunnel');
+	return {
+		top,
+		wall: top.clone().multiplyScalar(0.85),
+		underside: top.clone().multiplyScalar(0.6),
+		height: 0.06
+	};
+};
 
 /** Height of a tunnel, in blocks. The top block is a half block. */
 export const TUNNEL_H = 1.5;
@@ -20,25 +29,28 @@ export const SHAFT_H = 7;
 /** Rooms drawn into this part are the shaft landings (hidden where shafts are columns). */
 export const SHAFT_PART = 'shafts';
 
-const mix = (a: string, b: string, t: number) => new THREE.Color(a).lerp(new THREE.Color(b), t);
-
-/** Calm navigation palette; deeper floors only drift slightly warmer. */
+/**
+ * Calm navigation palette, from the `--map-*` CSS variables (see `layout.css`).
+ * Deeper floors only drift slightly warmer (toward `--map-warm`).
+ */
 function paletteFor(index: number) {
 	const warm = LEVELS[index].heat * 0.22;
+	const warmth = token('map-warm');
+	const drift = (name: Token) => token(name).lerp(warmth, warm);
 	return {
-		road: mix('#c3cdee', '#d2c6c0', warm),
-		tunnelWall: mix('#a3aed6', '#b4a69f', warm),
-		placeWall: mix('#7a81af', '#827598', warm),
-		placeRoof: mix('#5f6694', '#695c7e', warm),
-		blockWallDark: mix('#4a4e72', '#4f465d', warm),
-		blockRoofDark: mix('#383c5c', '#3d3549', warm),
-		farmRoof: new THREE.Color('#1f6b67'),
-		farmWall: new THREE.Color('#2a7d76'),
-		crop: new THREE.Color('#38a897'),
-		plantRoof: mix('#3c4060', '#43373f', warm),
-		plantWall: mix('#575c80', '#5f5160', warm),
-		plantCore: new THREE.Color('#ff9a52'),
-		shaftRoof: new THREE.Color('#141a2b')
+		road: drift('map-tunnel'),
+		tunnelWall: drift('map-tunnel-wall'),
+		placeWall: drift('map-room-wall'),
+		placeRoof: drift('map-room-roof'),
+		blockWallDark: drift('map-room-dark-wall'),
+		blockRoofDark: drift('map-room-dark-roof'),
+		farmRoof: token('map-farm-roof'),
+		farmWall: token('map-farm-wall'),
+		crop: token('map-crop'),
+		plantRoof: drift('map-plant-roof'),
+		plantWall: drift('map-plant-wall'),
+		plantCore: token('map-plant-core'),
+		shaftRoof: token('map-well')
 	};
 }
 
@@ -54,9 +66,9 @@ export function roomHeight(floor: Floor, r: Room) {
 
 /** One look for a shaft everywhere it appears: tinted by its status. */
 export function shaftColors(shaft: number) {
-	const status = shaft >= 0 ? SHAFT_COLORS[SHAFTS[shaft].status] : '#5eead4';
-	const wall = new THREE.Color('#3b4a74').lerp(new THREE.Color(status), 0.35);
-	return { wall, roof: wall.clone().multiplyScalar(1.15), well: new THREE.Color('#141a2b') };
+	const wall = token('map-shaft');
+	if (shaft >= 0) wall.lerp(new THREE.Color(SHAFT_COLORS[SHAFTS[shaft].status]), 0.35);
+	return { wall, roof: wall.clone().multiplyScalar(1.15), well: token('map-well') };
 }
 
 /** Simple fixtures on a facility's roof that say what it is at a glance (room-local tiles). */
@@ -93,7 +105,7 @@ function facilityProps(kind: FacilityKind, r: Room, y: number): Prop[] {
 		out.push(quad(0.4, 0.4, r.w - 0.4, r.h - 0.4, y + 0.03, dim));
 		out.push(quad(0.8, 0.8, r.w - 0.8, r.h - 0.8, y + 0.05, accent));
 	} else if (kind === 'clinic') {
-		const pale = new THREE.Color('#f5f7ff');
+		const pale = token('map-highlight');
 		out.push(quad(cx - 0.3, cy - 1.1, cx + 0.3, cy + 1.1, y + 0.03, pale));
 		out.push(quad(cx - 1.1, cy - 0.3, cx + 1.1, cy + 0.3, y + 0.03, pale));
 		out.push(quad(cx - 0.2, cy - 1, cx + 0.2, cy + 1, y + 0.05, accent));
@@ -147,15 +159,15 @@ function facilityProps(kind: FacilityKind, r: Room, y: number): Prop[] {
 export function floorStyle(floor: Floor, lens: MapLens | null = null): LayerStyle {
 	const c = paletteFor(floor.index);
 	const sickness = lens === 'sickness' ? sicknessOf(floor) : null;
-	const steps = SICK_STEPS.map((s) => new THREE.Color(s.color));
-	const muted = { wall: new THREE.Color('#23262e'), roof: new THREE.Color('#1c1e25') };
+	const steps = SICK_STEPS.map((_, i) => token(`map-sick-${(i + 1) as 1 | 2 | 3 | 4 | 5}`));
+	const muted = { wall: token('map-muted-wall'), roof: token('map-muted-roof') };
 	return {
 		seed: floor.index * 1_000_003,
 		// A data lens is read off the rooms alone: they go fully opaque with flat colours (no
 		// per-block brightness jitter skewing the scale), and the tunnels flatten into a
 		// near-black trace on the floor, too low to ever cover a room or its highlight.
 		...(lens
-			? { tunnel: LENS_TUNNEL, ghostOpacity: 0, jitter: 0 }
+			? { tunnel: lensTunnel(), ghostOpacity: 0, jitter: 0 }
 			: { tunnel: { top: c.road, wall: c.tunnelWall, height: TUNNEL_H } }),
 		room(r): RoomLook {
 			const height = roomHeight(floor, r);

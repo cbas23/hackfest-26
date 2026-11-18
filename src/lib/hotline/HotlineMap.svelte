@@ -22,7 +22,7 @@
 		radar = [],
 		radius = 45,
 		route = null,
-		radarColor = '#34d399',
+		radarColor = undefined,
 		radarLabel = true,
 		band = null
 	}: {

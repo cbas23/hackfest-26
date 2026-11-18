@@ -9,6 +9,8 @@ import { Overlay, type OverlayHandle, type OverlaySpec } from './overlays.js';
 
 export interface MapOptions {
 	background?: Color;
+	/** Hemisphere light: colour from above and from below. */
+	light?: { sky?: Color; ground?: Color };
 	/** Distance fog; null turns it off. */
 	fog?: { near: number; far: number } | null;
 	/** Tile shown at world origin. Defaults to the centre of the first layer added. */
@@ -117,6 +119,7 @@ export interface TunnelMapView {
 	setVeil(opacity: number): void;
 	setFog(fog: { near: number; far: number } | null): void;
 	setBackground(color: Color): void;
+	setLight(light: { sky?: Color; ground?: Color }): void;
 
 	/** Tile (+ height, + layer) → world position. */
 	toWorld(x: number, y: number, z?: number, layer?: string | null): THREE.Vector3;
@@ -156,7 +159,12 @@ export function createMap(container: HTMLElement, options: MapOptions = {}): Tun
 	const scene = new THREE.Scene();
 	const fogOpt = options.fog === undefined ? { near: 260, far: 720 } : options.fog;
 	if (fogOpt) scene.fog = new THREE.Fog(background, fogOpt.near, fogOpt.far);
-	scene.add(new THREE.HemisphereLight('#dfe6ff', '#28304a', 2.2));
+	const hemi = new THREE.HemisphereLight(
+		options.light?.sky ?? '#dfe6ff',
+		options.light?.ground ?? '#28304a',
+		2.2
+	);
+	scene.add(hemi);
 	const sun = new THREE.DirectionalLight('#ffffff', 1.6);
 	sun.position.set(-0.45, 1, 0.3);
 	scene.add(sun);
@@ -583,6 +591,10 @@ export function createMap(container: HTMLElement, options: MapOptions = {}): Tun
 			renderer.setClearColor(background);
 			if (scene.fog) scene.fog.color.copy(background);
 			veil.style.background = `#${background.getHexString()}`;
+		},
+		setLight({ sky, ground }) {
+			if (sky !== undefined) hemi.color.set(sky);
+			if (ground !== undefined) hemi.groundColor.set(ground);
 		},
 
 		toWorld(x, y, z = 0, layer) {
