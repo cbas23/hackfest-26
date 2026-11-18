@@ -9,7 +9,7 @@
 	import { createHollow, type Floor } from '#lib/hollow/world.js';
 	import { sicknessOf } from '#lib/hollow/sickness.js';
 	import SicknessScale from './sickness-scale.svelte';
-	import { home, SECTION_LENS } from './home-state.svelte.js';
+	import { home, registerMapNav, SECTION_LENS } from './home-state.svelte.js';
 	import { cn } from '#lib/utils.js';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as ButtonGroup from '#lib/components/ui/button-group/index.js';
@@ -19,8 +19,6 @@
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import MinusIcon from '@lucide/svelte/icons/minus';
 	import ScanIcon from '@lucide/svelte/icons/scan';
-	import PhoneIcon from '@lucide/svelte/icons/phone';
-	import { resolve } from '$app/paths';
 
 	const hollow = createHollow(HOLLOW_SEED);
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- cache, never read by the template
@@ -46,13 +44,18 @@
 	let overview = $state(false);
 
 	const level = $derived(LEVELS[levelIndex]);
+	// Mirror the view into shared state so the sidebar's depth gauge follows the map.
+	$effect(() => {
+		home.level = levelIndex;
+		home.overview = overview;
+	});
 	const floor = $derived(hollow.floor(levelIndex));
 
 	const KIND_COLOR: Record<PlaceKind, string> = {
-		block: '#8b93c7',
-		farm: '#2fb3a3',
-		plant: '#e3965c',
-		shaft: '#38bdf8',
+		block: 'var(--chart-1)',
+		farm: 'var(--chart-2)',
+		plant: 'var(--chart-3)',
+		shaft: 'var(--chart-4)',
 		air: FACILITY_INFO.air.color,
 		water: FACILITY_INFO.water.color,
 		clinic: FACILITY_INFO.clinic.color,
@@ -182,7 +185,7 @@
 					level: l.index,
 					kind: 'level',
 					label: l.name,
-					color: '#e2e8f0'
+					color: 'var(--foreground)'
 				};
 			});
 		}
@@ -250,6 +253,15 @@
 			: null
 	);
 
+	const HINTS: [string[], string][] = [
+		[['Drag'], 'pan'],
+		[['Right-drag'], 'rotate'],
+		[['Scroll'], 'zoom'],
+		[['Q', 'E'], 'change level'],
+		[['O'], 'all levels'],
+		[['F'], 'fit level']
+	];
+
 	// ── Keyboard ─────────────────────────────────────────────────────────────
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- never read by the template
 	const held = new Set<string>();
@@ -316,6 +328,7 @@
 			}
 		});
 		scene = s;
+		registerMapNav({ goTo, setOverview });
 		s.showFloor(hollow.floor(0), 0);
 		s.fitBounds(...cityBounds(hollow.floor(0)));
 
@@ -350,6 +363,7 @@
 			window.removeEventListener('keyup', onKeyUp);
 			window.removeEventListener('blur', onBlur);
 			disposed = true;
+			registerMapNav(null);
 			s.dispose();
 			scene = undefined;
 		};
@@ -385,9 +399,10 @@
 						class="pointer-events-auto absolute -translate-y-1/2 rounded-full"
 						onclick={() => goTo(p.level)}
 					>
-						<span class="font-bold">{l.code}</span>
+						<span class="font-semibold text-primary">{l.code}</span>
 						{l.name}
-						<span class="text-muted-foreground">−{l.depth} m</span>
+						<span class="text-muted-foreground tabular-nums">−{l.depth.toLocaleString('en')} m</span
+						>
 					</Button>
 				{:else}
 					<button
@@ -407,7 +422,7 @@
 						</span>
 						{#if showNames || p.kind === 'shaft'}
 							<span
-								class="mt-0.5 text-xs font-semibold whitespace-nowrap text-foreground [text-shadow:0_0_3px_#000,0_0_6px_#000]"
+								class="mt-0.5 text-xs font-semibold whitespace-nowrap text-foreground [text-shadow:0_0_3px_var(--background),0_0_6px_var(--background)]"
 								>{p.label}</span
 							>
 						{/if}
@@ -417,32 +432,18 @@
 		{/each}
 	</div>
 
-	<!-- Hotline dashboard -->
-	<a
-		href={resolve('/hotline')}
-		class="absolute top-4 right-4 z-10 flex items-center gap-2 rounded-full border border-red-500/50 bg-background/90 px-3.5 py-1.5 text-sm font-semibold backdrop-blur transition hover:border-red-500 hover:bg-red-500/10"
-	>
-		<span class="relative flex size-2">
-			<span class="absolute inline-flex size-full animate-ping rounded-full bg-red-500 opacity-75"
-			></span>
-			<span class="relative inline-flex size-2 rounded-full bg-red-500"></span>
-		</span>
-		<PhoneIcon class="size-4" />
-		Hollow Hotline
-	</a>
-
-	<!-- Layer switcher -->
-	<div class="absolute top-4 left-1/2 z-10 -translate-x-1/2">
+	<!-- Layer switcher (small screens; the sidebar's depth gauge does this on wider ones) -->
+	<div class="absolute inset-x-4 top-4 z-10 md:hidden">
 		<ToggleGroup.Root
 			type="single"
 			variant="outline"
-			class="bg-background/90 backdrop-blur"
+			class="w-full bg-background/90 backdrop-blur"
 			aria-label="Map level"
 			bind:value={() => layerValue, selectLayer}
 		>
-			<ToggleGroup.Item value="all" aria-label="All levels">All</ToggleGroup.Item>
+			<ToggleGroup.Item class="flex-1" value="all" aria-label="All levels">All</ToggleGroup.Item>
 			{#each LEVELS as l (l.code)}
-				<ToggleGroup.Item value={l.code} aria-label="{l.name}, −{l.depth} m"
+				<ToggleGroup.Item class="flex-1" value={l.code} aria-label="{l.name}, −{l.depth} m"
 					>{l.code}</ToggleGroup.Item
 				>
 			{/each}
@@ -451,7 +452,7 @@
 
 	{#if sickTotals}
 		<div
-			class="absolute top-16 left-4 z-10 flex w-56 flex-col gap-1.5 rounded-lg border bg-background/90 p-3 text-xs backdrop-blur"
+			class="absolute top-16 left-4 z-10 flex w-56 flex-col gap-1.5 rounded-lg border bg-background/90 p-3 text-xs backdrop-blur md:top-4"
 		>
 			<div class="flex items-center justify-between">
 				<span class="font-semibold">Lung sickness</span>
@@ -484,7 +485,7 @@
 			aria-label="Reset to north"
 		>
 			<svg viewBox="0 0 24 24" style="transform:rotate({heading}deg)" aria-hidden="true">
-				<path d="M12 2l4 10h-8z" fill="#ef4444" />
+				<path d="M12 2l4 10h-8z" fill="var(--destructive)" />
 				<path d="M12 22l-4-10h8z" fill="currentColor" />
 			</svg>
 		</Button>
@@ -514,11 +515,21 @@
 			onclose={() => select(null)}
 		/>
 	{:else}
-		<p
-			class="pointer-events-none absolute bottom-4 left-4 hidden text-[11px] text-muted-foreground xl:block"
+		<ul
+			class="pointer-events-none absolute bottom-4 left-4 hidden items-center gap-x-4 text-[11px] text-muted-foreground xl:flex"
+			aria-label="Map controls"
 		>
-			Drag to pan · right-drag to rotate · scroll to zoom · Q/E change level · O all levels · F
-			whole level
-		</p>
+			{#each HINTS as [keys, action] (action)}
+				<li class="flex items-center gap-1.5">
+					{#each keys as k (k)}
+						<kbd
+							class="rounded border border-border bg-background/80 px-1.5 py-px font-sans text-[10px] text-foreground"
+							>{k}</kbd
+						>
+					{/each}
+					{action}
+				</li>
+			{/each}
+		</ul>
 	{/if}
 </section>

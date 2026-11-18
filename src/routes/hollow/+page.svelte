@@ -597,7 +597,7 @@
 	{/if}
 {/snippet}
 
-<div class="fixed inset-0 overflow-hidden bg-[#121726] font-sans text-slate-200 select-none">
+<div class="absolute inset-0 overflow-hidden bg-[#121726] font-sans text-slate-200 select-none">
 	<div
 		bind:this={container}
 		class="absolute inset-0 {picking ? 'cursor-crosshair' : hover ? 'cursor-pointer' : ''}"
@@ -941,7 +941,7 @@
 		{@const pf = hollow.floor(p.floor)}
 		{@const sensors = facilityStatus(p)}
 		<section
-			class="absolute bottom-4 left-4 z-20 max-h-[calc(100vh-6rem)] w-[min(24rem,calc(100vw-5.5rem))] overflow-y-auto rounded-2xl border border-white/10 bg-[#1f2638]/95 p-4 shadow-xl backdrop-blur"
+			class="absolute bottom-4 left-4 z-20 max-h-[calc(100%-6rem)] w-[min(24rem,calc(100%-5.5rem))] overflow-y-auto rounded-2xl border border-white/10 bg-[#1f2638]/95 p-4 shadow-xl backdrop-blur"
 			aria-label={p.label}
 		>
 			<div class="flex items-start gap-3">

@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { Tween } from 'svelte/motion';
-	import { resolve } from '$app/paths';
 	import { cubicOut } from 'svelte/easing';
 	import {
 		ALERT_INFO,
@@ -330,15 +329,10 @@
 	{/each}
 {/snippet}
 
-<div class="flex h-screen flex-col overflow-hidden bg-[#070a12] text-slate-200">
+<div class="flex h-full flex-col overflow-hidden bg-[#070a12] text-slate-200">
 	<!-- Header -->
 	<header class="flex items-center justify-between border-b border-white/10 px-6 py-3">
 		<div class="flex items-center gap-3">
-			<a
-				href={resolve('/')}
-				class="mr-2 rounded-full border border-white/15 px-3 py-1 text-xs text-slate-300 hover:bg-white/5"
-				>← Map</a
-			>
 			<span class="relative flex size-3">
 				<span class="absolute inline-flex size-full animate-ping rounded-full bg-red-500 opacity-75"
 				></span>

@@ -50,8 +50,11 @@
 		<div class="flex items-center gap-3">
 			<PlaceIcon kind={p.kind} {color} size={36} />
 			<div class="min-w-0">
-				<Card.Title class="truncate">{p.label}</Card.Title>
-				<Card.Description class="truncate">{p.sub}</Card.Description>
+				<Card.Title
+					class="truncate text-base leading-tight font-semibold group-data-[size=sm]/card:text-base"
+					>{p.label}</Card.Title
+				>
+				<Card.Description class="truncate text-xs">{p.sub}</Card.Description>
 			</div>
 		</div>
 		<Card.Action>
@@ -76,7 +79,7 @@
 			{:else if p.kind !== 'block'}
 				{p.note}
 			{:else}
-				<span class={pf.lit[p.room.id] ? 'text-emerald-400' : 'text-foreground'}
+				<span class={pf.lit[p.room.id] ? 'text-success' : 'text-foreground'}
 					>{pf.lit[p.room.id] ? 'Powered' : 'Blackout'}</span
 				>
 				· ≈ {compact.format(pf.residents[p.room.id])} residents · {p.room.w}×{p.room.h} block, single
@@ -88,7 +91,7 @@
 			<Separator />
 			<div class="flex flex-col gap-2 text-xs">
 				<div class="flex items-center justify-between">
-					<span class="font-semibold tracking-wider text-muted-foreground">LUNG SICKNESS</span>
+					<span class="font-medium text-foreground">Lung sickness</span>
 					<span class="font-semibold tabular-nums">{Math.round(sickness.score * 100)}%</span>
 				</div>
 				<SicknessScale score={sickness.score} />
@@ -105,7 +108,7 @@
 			<Separator />
 			<div class="flex flex-col gap-2 text-xs">
 				<div class="flex items-center justify-between">
-					<span class="font-semibold tracking-wider text-muted-foreground">SENSORS</span>
+					<span class="font-medium text-foreground">Sensors</span>
 					{@render pill(overall.label, overall.color)}
 				</div>
 				<dl class="grid grid-cols-[auto_1fr_auto] items-center gap-x-2 gap-y-1">
@@ -129,7 +132,7 @@
 			<Separator />
 			<div class="flex flex-col gap-2 text-xs">
 				<div class="flex items-center justify-between">
-					<span class="font-semibold tracking-wider text-muted-foreground">IMPACT</span>
+					<span class="font-medium text-foreground">Impact</span>
 					{#if impact.active}
 						<span class="font-semibold">
 							≈ {compact.format(impact.affectedTotal)} residents affected
