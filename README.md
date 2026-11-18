@@ -1,56 +1,132 @@
-# sv
+# The Hollow
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+A hackathon project (Hackfest '26) set in **the Hollow**: a fictional underground city seven levels
+deep beneath the dead cities above. Air, light and water are metered down from the top, and things
+get worse the deeper you go. The app is a civic dashboard for it: a live 3D map of every level, its
+facilities, simulated sensor readings, infrastructure impact, and lung-sickness hotspots.
 
-## Creating a project
+> All data in this project (reports, history, sensors, sickness, telemetry, residents) is
+> **fictional and simulated**. Nothing is measured.
 
-If you're seeing this, you've probably already done this step. Congrats!
+## ⚠️ The only real page is the Main Map (`/`)
 
-```sh
-# create a new project
-npx sv create my-app
-```
+**All the tabs except for Map are for scratch work. The real page is the Main Map, and it stays the
+only real page unless stated otherwise.**
 
-To recreate this project with the same configuration:
+| Tab              | Route         | Status                                                                     |
+| ---------------- | ------------- | -------------------------------------------------------------------------- |
+| Map              | `/`           | **The real product.** Sidebar plus 3D map                                  |
+| Directions       | `/hollow`     | Scratch: an earlier map prototype with route finding and impact assessment |
+| Hotline          | `/hotline`    | Scratch: call-in report dashboard (ElevenLabs webhook, scoring, agents)    |
+| Tunnel generator | `/tunnel-gen` | Scratch: a 2D playground for the procedural tunnel generator               |
 
-```sh
-# recreate this project
-bun x sv@1.4.0 create --template minimal --types ts --add prettier eslint tailwindcss="plugins:none" ai-tools="ide:claude-code,other+delivery:plugin+agentsMd:yes+optInSkills:none" --install bun ./
-```
+Scratch pages are there to prototype features and try out logic. Features that prove useful get
+moved into the Main Map. Don't polish the scratch pages for their own sake.
 
-## Adding features
+## Stack
 
-Add features to your project with `sv add`:
+- **SvelteKit 3 / Svelte 5** (runes), TypeScript, Vite 8
+- **Bun** as the package manager and script runner
+- **Tailwind CSS 4** + **shadcn-svelte** (bits-ui) components in `src/lib/components/ui`
+- **three.js** for the 3D map
+- Prettier + ESLint
 
-```sh
-npx sv add
-```
-
-For example, to add Tailwind CSS:
-
-```sh
-npx sv add tailwindcss
-```
-
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+## Getting started
 
 ```sh
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
+bun install
+bun run dev            # start the dev server
+bun run check          # svelte-check / type check
+bun run lint           # prettier + eslint
+bun run format         # prettier --write
+bun run build          # production build (adapter-auto)
 ```
 
-## Building
-
-To create a production version of your app:
+Other scripts:
 
 ```sh
-npm run build
+bun run bake:hollow            # regenerate src/lib/hollow/floors.json after changing the generator, levels or seed
+bun scripts/validate-intel.ts  # check the fictional intel dataset against the map data
 ```
 
-You can preview the production build with `npm run preview`.
+Environment variables (optional, only used by the scratch Hotline page):
 
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+- `ELEVENLABS_WEBHOOK_SECRET`: verifies signatures on `/api/hotline/webhook`
+- `VITE_HOTLINE_NUMBER`: phone number shown on the Hotline dashboard
+
+## Architecture
+
+```
+src/
+├── routes/
+│   ├── +layout.svelte          App shell: SiteNav across the top, page below (full viewport height)
+│   ├── layout.css              Tailwind + shadcn theme tokens, plus the --map-* colours the 3D map reads
+│   ├── +page.svelte            MAIN MAP (real page): AppSidebar + MapView, client-only (ssr = false)
+│   ├── hollow/                 scratch: Directions prototype
+│   ├── hotline/                scratch: Hotline dashboard
+│   ├── tunnel-gen/             scratch: 2D generator playground
+│   └── api/hotline/            scratch backend: report (GET/POST/DELETE), events (SSE), webhook (ElevenLabs)
+├── lib/
+│   ├── components/
+│   │   ├── site-nav.svelte     Top navigation tabs
+│   │   ├── home/               Main Map UI
+│   │   │   ├── app-sidebar.svelte    Level picker (L1 to L7 + "all levels") and data-layer cards
+│   │   │   ├── map-view.svelte       Hosts the 3D map, controls, pins, hover/selection
+│   │   │   ├── place-card.svelte     Details for the selected place (sensors, impact, sickness)
+│   │   │   ├── home-state.svelte.ts  Shared rune state between the sidebar and the map (level, overview, open lens)
+│   │   │   └── sickness-scale.svelte, place-icon.svelte
+│   │   └── ui/                 shadcn-svelte components (generated; add more with the shadcn CLI)
+│   ├── map/                    Content-agnostic three.js renderer for tunnel maps
+│   ├── tunnels/generate.ts     Seeded procedural tunnel/room generator (TunnelMap)
+│   ├── hollow/                 The Hollow's world, data and map dressing
+│   ├── hotline/                Hotline scoring and agents (used by the scratch Hotline page)
+│   ├── intel/                  Fictional report dataset, shared vocabulary and history (not wired into a page yet)
+│   └── server/hotline.ts       In-memory report store + pub/sub for SSE
+scripts/                        bake-hollow.ts, validate-intel.ts
+```
+
+### Layers, bottom to top
+
+1. **`#lib/tunnels`: generation.** `generateTunnelMap(options)` produces a seeded grid of tiles
+   (streets, rooms, gates/shafts, doors). Deterministic for a given seed.
+2. **`#lib/map`: rendering.** A generic 3D renderer that knows nothing about the Hollow:
+   `createMap(el)`, `addLayer(id, tunnelMap, { style })`, overlays (paths, areas), HTML markers,
+   camera moves, picking (`map.on('click' | 'hover', …)`) and a frame hook. Meshes are built in a
+   Web Worker (`mesher.ts` / `mesh.worker.ts`) with a main-thread fallback.
+3. **`#lib/hollow`: the world.**
+   - `data.ts`: the seven levels (L1 The Crown, L2 Lampline, L3 The Warrens, L4 Lowmarch, L5 The
+     Sump, L6 Blackline, L7 The Furnace) with depth, population, air, light and heat; named
+     facilities; the six shafts that link the levels; `HOLLOW_SEED = 2087`.
+   - `world.ts`: `createHollow(seed)` builds the floors from the pre-baked `floors.json`
+     (`bake.ts` holds the compact format), plus power, residents and facility placement.
+   - `nav.ts`: places on a floor and route finding across floors and shafts.
+   - `sensors.ts`: simulated facility readings, with status from fixed thresholds (Detect).
+   - `impact.ts`: which neighborhoods and residents lose service when a facility fails (Assess).
+   - `sickness.ts`: deterministic lung-sickness hotspots per habitation block.
+   - `mapStyle.ts`, `theme.ts`: block heights and palettes; the map's colours come from CSS
+     variables in `layout.css`, so the 3D map matches the UI theme.
+   - `hollowMap.ts`: `createHollowMap` wraps `#lib/map` with Hollow features: level changes,
+     the all-levels stacked view with animated transitions, routes, impact tint, outlines,
+     pins and data lenses.
+4. **UI.** The Main Map (`/`) puts `AppSidebar` next to `MapView`. They talk through
+   `home-state.svelte.ts`: the sidebar drives navigation via the registered `mapNav`, and opening
+   a data-layer card (for example "Lung sickness") turns on its lens (`SECTION_LENS`) on the map.
+
+### Scratch-only modules
+
+- `#lib/hotline`: keyword extraction and risk scoring (`engine.ts`), seeded demo calls, named
+  buildings, telemetry, the "Contact Agent" water letter and the "Dash Agent" supply dispatch.
+  The API routes in `routes/api/hotline` and the in-memory store in `#lib/server/hotline.ts`
+  support it.
+- `#lib/intel`: a fictional set of reports from 10 to 14 November 2087, sixteen weeks of history,
+  and a shared vocabulary of concept codes. It is validated against the map data but no page
+  uses it yet.
+
+Pieces from these modules can move into the Main Map when they're needed there.
+
+## Conventions
+
+- Import from `src/lib` through `#lib/...` (package.json `imports`), with `.js` extensions on TS files.
+- Everything simulated is seeded and deterministic: the same seed always gives the same map,
+  readings and sickness.
+- After changing the generator, `FLOOR_CONFIG`, the levels or the seed, run `bun run bake:hollow`.
