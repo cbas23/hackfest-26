@@ -42,6 +42,22 @@
 	let switching = $state(false);
 	/** All levels stacked at their depths, instead of one at a time. */
 	let overview = $state(false);
+	/** In the stacked view, the level under the pointer (over the map, or its name tag). */
+	let mapHoverLevel = $state<number | null>(null);
+	let tagHoverLevel = $state<number | null>(null);
+	const hoverLevel = $derived(overview ? (tagHoverLevel ?? mapHoverLevel) : null);
+	$effect(() => scene?.setFocusLevel(hoverLevel));
+
+	/**
+	 * The pick misses in the gaps between a level's tunnels, so losing the level waits a
+	 * moment: sweeping across one doesn't flicker the others back in.
+	 */
+	let leaveTimer: ReturnType<typeof setTimeout> | undefined;
+	function hoverStackLevel(level: number | null) {
+		clearTimeout(leaveTimer);
+		if (level !== null) mapHoverLevel = level;
+		else if (mapHoverLevel !== null) leaveTimer = setTimeout(() => (mapHoverLevel = null), 180);
+	}
 
 	const level = $derived(LEVELS[levelIndex]);
 	// Mirror the view into shared state so the sidebar's depth gauge follows the map.
@@ -99,6 +115,8 @@
 		overview = false;
 		levelIndex = index;
 		hover = null;
+		hoverStackLevel(null);
+		tagHoverLevel = null;
 		scene?.showFloor(hollow.floor(index), dir);
 		if (leaving) scene?.fitBounds(...cityBounds(hollow.floor(index)));
 		scene?.setHover(null);
@@ -314,6 +332,7 @@
 	onMount(() => {
 		const s = createHollowMap(container, {
 			onHover: (p) => {
+				if (overview) hoverStackLevel(p?.level ?? null);
 				const r = overview || (p && p.level !== levelIndex) ? null : (p?.room ?? null);
 				if (r !== hover) {
 					hover = r;
@@ -331,21 +350,8 @@
 		registerMapNav({ goTo, setOverview });
 		s.showFloor(hollow.floor(0), 0);
 		s.fitBounds(...cityBounds(hollow.floor(0)));
-
-		// Warm up the other levels one at a time while the page is idle: decoding a floor is
-		// main-thread work, but its meshes build in a worker, so the UI keeps animating.
-		const idle = (fn: () => void) =>
-			'requestIdleCallback' in window
-				? requestIdleCallback(fn, { timeout: 1000 })
-				: setTimeout(fn, 50);
-		let warm = 1;
-		let disposed = false;
-		const warmNext = () => {
-			if (disposed || warm >= LEVELS.length) return;
-			s.preload(hollow.floor(warm++));
-			idle(warmNext);
-		};
-		idle(warmNext);
+		// Open on the all-levels stack.
+		setOverview(true);
 
 		const onKeyUp = (e: KeyboardEvent) => {
 			held.delete(e.key.toLowerCase());
@@ -362,7 +368,7 @@
 			window.removeEventListener('keydown', onKeyDown);
 			window.removeEventListener('keyup', onKeyUp);
 			window.removeEventListener('blur', onBlur);
-			disposed = true;
+			clearTimeout(leaveTimer);
 			registerMapNav(null);
 			s.dispose();
 			scene = undefined;
@@ -377,7 +383,7 @@
 >
 	<div
 		bind:this={container}
-		class={cn('absolute inset-0', hover && 'cursor-pointer')}
+		class={cn('absolute inset-0', hover || hoverLevel !== null ? 'cursor-pointer' : 'cursor-grab')}
 		role="img"
 		aria-label={overview ? 'All levels of the Hollow' : `Map of ${level.name}, level ${level.code}`}
 	></div>
@@ -393,11 +399,19 @@
 			<div bind:this={pinEls[p.key]} class="absolute top-0 left-0" style="visibility:hidden">
 				{#if p.kind === 'level'}
 					{@const l = LEVELS[p.level]}
+					<!-- Only the hovered level's tag shows; the rest stay reachable by keyboard. -->
 					<Button
 						variant="outline"
 						size="sm"
-						class="pointer-events-auto absolute -translate-y-1/2 rounded-full"
+						class={cn(
+							'absolute -translate-y-1/2 rounded-full transition-opacity duration-150 focus-visible:pointer-events-auto focus-visible:opacity-100',
+							hoverLevel === p.level ? 'pointer-events-auto opacity-100' : 'opacity-0'
+						)}
 						onclick={() => goTo(p.level)}
+						onpointerenter={() => (tagHoverLevel = p.level)}
+						onpointerleave={() => (tagHoverLevel = null)}
+						onfocus={() => (tagHoverLevel = p.level)}
+						onblur={() => (tagHoverLevel = null)}
 					>
 						<span class="font-semibold text-primary">{l.code}</span>
 						{l.name}

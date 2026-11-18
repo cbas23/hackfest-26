@@ -600,7 +600,11 @@
 <div class="absolute inset-0 overflow-hidden bg-[#121726] font-sans text-slate-200 select-none">
 	<div
 		bind:this={container}
-		class="absolute inset-0 {picking ? 'cursor-crosshair' : hover ? 'cursor-pointer' : ''}"
+		class="absolute inset-0 {picking
+			? 'cursor-crosshair'
+			: hover
+				? 'cursor-pointer'
+				: 'cursor-grab'}"
 		role="img"
 		aria-label="Map of {level.name}, level {level.code} of the Hollow"
 	></div>

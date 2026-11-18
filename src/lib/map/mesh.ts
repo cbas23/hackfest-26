@@ -4,7 +4,7 @@
  */
 import * as THREE from 'three';
 import type { Point } from '#lib/tunnels/generate.js';
-import { Builder, SIDES, shade, type Dir, type MeshArrays } from './geometry.js';
+import { Builder, SIDES, type Dir, type MeshArrays } from './geometry.js';
 
 export type { MeshArrays };
 
@@ -77,66 +77,68 @@ export interface MeshOutput {
 	parts: { part: string; solid: MeshArrays | null; glow: MeshArrays | null }[];
 }
 
-/** Tunnel faces darken toward the floor by this factor; rooms by `ROOM_FLOOR_SHADE`. */
-const TUNNEL_FLOOR_SHADE = 0.8;
-const ROOM_FLOOR_SHADE = 0.7;
 const DOOR_HALF_WIDTH = 0.32;
 const DOOR_HEIGHT = 1.4;
 
 export const toRGB = (c: THREE.Color): RGB => [c.r, c.g, c.b];
 const fromRGB = (c: RGB) => new THREE.Color(c[0], c[1], c[2]);
 
+/**
+ * Shading baked into the colours, as if lit from high in the north-west. The meshes render
+ * unlit, so it never depends on the scene lights or goes black from any angle: tops at full
+ * colour, each wall by the way it faces (lit walls bright, walls facing away in shadow) and
+ * darker toward its base, undersides darkest.
+ */
+export const SIDE_SHADE: Record<Dir, number> = { n: 0.9, w: 0.8, e: 0.6, s: 0.5 };
+/** A wall's base, relative to its top edge. */
+export const WALL_BASE_FALLOFF = 0.8;
+export const UNDERSIDE_SHADE = 0.45;
+const shaded = (c: THREE.Color, k: number) => c.clone().multiplyScalar(k);
+
 export function buildMeshes(input: MeshInput): MeshOutput {
-	const { origin, seed: seed0, jitter: j } = input;
+	// Every tunnel, room and fixture is one colour, shaded by face (see SIDE_SHADE).
+	// Rendered unlit, so it reads much the same from above, from the side and from underneath.
+	const { origin } = input;
 	const { width, road, roomAt } = input.grid;
 	const wx = (x: number) => x - origin.x;
 	const wz = (y: number) => y - origin.y;
-	const tileSeed = (x: number, y: number) => (y * width + x) * 7 + seed0;
 	const isRoad = (x: number, y: number) => x >= 0 && x < width && road[y * width + x] === 1;
 	const roomOf = (x: number, y: number) =>
 		x >= 0 && x < width && y >= 0 ? (roomAt[y * width + x] ?? -1) : -1;
 
-	/** A run of 1-block-high wall faces, darker toward the bottom. */
-	const wallColumn = (
-		b: Builder,
-		d: Dir,
-		x0: number,
-		z0: number,
-		h: number,
-		base: THREE.Color,
-		seed: number,
-		floorShade: number
-	) => {
-		for (let k = 0; k < h; k++) {
-			const top = Math.min(k + 1, h);
-			const col = shade(base, seed + d.charCodeAt(0) * 13 + k, 0.1 * j);
-			const lo = col.clone().multiplyScalar(floorShade + (1 - floorShade) * (k / h));
-			const hi = col.clone().multiplyScalar(floorShade + (1 - floorShade) * (top / h));
-			b.side(d, x0, z0, x0 + 1, z0 + 1, k, top, hi, false, lo);
-		}
-	};
+	/** A wall face, floor to `h`, shaded by the way it faces and darker toward its base. */
+	const wallColumn = (b: Builder, d: Dir, x0: number, z0: number, h: number, color: THREE.Color) =>
+		b.side(
+			d,
+			x0,
+			z0,
+			x0 + 1,
+			z0 + 1,
+			0,
+			h,
+			shaded(color, SIDE_SHADE[d]),
+			false,
+			shaded(color, SIDE_SHADE[d] * WALL_BASE_FALLOFF)
+		);
 
 	// ── Tunnels ───────────────────────────────────────────────────────────────
 	let tunnels: MeshArrays | null = null;
 	if (input.tunnel) {
 		const b = new Builder();
 		const th = input.tunnel.height;
-		const top = fromRGB(input.tunnel.top);
-		const wall = fromRGB(input.tunnel.wall);
-		const under = fromRGB(input.tunnel.under);
+		const color = fromRGB(input.tunnel.top);
 		const height = road.length / width;
 		for (let y = 0; y < height; y++)
 			for (let x = 0; x < width; x++) {
 				if (!isRoad(x, y)) continue;
 				const x0 = wx(x);
 				const z0 = wz(y);
-				const seed = tileSeed(x, y);
 				// Only adjoining tunnel tiles share an open face. Walls stay beside rooms so the
 				// tunnel owns its full silhouette (and stencil mask), even at a door.
 				for (const [d, dx, dy] of SIDES)
-					if (!isRoad(x + dx, y + dy)) wallColumn(b, d, x0, z0, th, wall, seed, TUNNEL_FLOOR_SHADE);
-				b.top(x0, z0, x0 + 1, z0 + 1, th, shade(top, seed, 0.06 * j));
-				b.top(x0, z0, x0 + 1, z0 + 1, 0, under, true);
+					if (!isRoad(x + dx, y + dy)) wallColumn(b, d, x0, z0, th, color);
+				b.top(x0, z0, x0 + 1, z0 + 1, th, color);
+				b.top(x0, z0, x0 + 1, z0 + 1, 0, shaded(color, UNDERSIDE_SHADE), true);
 			}
 		if (!b.empty) tunnels = b.arrays();
 	}
@@ -149,17 +151,16 @@ export function buildMeshes(input: MeshInput): MeshOutput {
 		const { solid, glow } = bs;
 		solid.lift = glow.lift = -r.sink;
 		const h = r.height;
-		const wall = fromRGB(r.wall);
-		const roof = fromRGB(r.roof);
+		// The roof colour is the room's identity (data lenses paint it), so it covers every face.
+		const color = fromRGB(r.roof);
 		for (let y = r.y; y < r.y + r.h; y++)
 			for (let x = r.x; x < r.x + r.w; x++) {
 				const x0 = wx(x);
 				const z0 = wz(y);
-				const seed = tileSeed(x, y);
 				for (const [d, dx, dy] of SIDES)
-					if (roomOf(x + dx, y + dy) !== r.id)
-						wallColumn(solid, d, x0, z0, h, wall, seed, ROOM_FLOOR_SHADE);
-				solid.top(x0, z0, x0 + 1, z0 + 1, h, shade(roof, seed, 0.08 * j));
+					if (roomOf(x + dx, y + dy) !== r.id) wallColumn(solid, d, x0, z0, h, color);
+				solid.top(x0, z0, x0 + 1, z0 + 1, h, color);
+				solid.top(x0, z0, x0 + 1, z0 + 1, 0, shaded(color, UNDERSIDE_SHADE), true);
 			}
 
 		const ox = wx(r.x);
@@ -168,17 +169,12 @@ export function buildMeshes(input: MeshInput): MeshOutput {
 			const b = p.glow ? glow : solid;
 			if (p.type === 'quad')
 				b.top(ox + p.x0, oz + p.y0, ox + p.x1, oz + p.y1, p.z, fromRGB(p.color));
-			else
-				b.box(
-					ox + p.x0,
-					oz + p.y0,
-					ox + p.x1,
-					oz + p.y1,
-					p.z0,
-					p.z1,
-					fromRGB(p.wall),
-					fromRGB(p.roof)
-				);
+			else {
+				const c = fromRGB(p.roof);
+				const [x0, z0, x1, z1] = [ox + p.x0, oz + p.y0, ox + p.x1, oz + p.y1];
+				for (const [d] of SIDES) b.side(d, x0, z0, x1, z1, p.z0, p.z1, shaded(c, SIDE_SHADE[d]));
+				b.top(x0, z0, x1, z1, p.z1, c);
+			}
 		}
 
 		if (r.doorColor) {

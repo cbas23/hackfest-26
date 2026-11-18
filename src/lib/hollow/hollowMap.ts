@@ -15,6 +15,7 @@ import {
 	type MarkerHandle,
 	type TunnelMapView
 } from '#lib/map/index.js';
+import { SIDE_SHADE, UNDERSIDE_SHADE } from '#lib/map/mesh.js';
 import { FLOOR_CONFIG, LEVELS, SHAFTS } from './data.js';
 import {
 	floorStyle,
@@ -114,6 +115,11 @@ export interface HollowMap {
 	setOverview(on: boolean, floors: Floor[]): void;
 	/** Frame the whole all-levels stack (the view it opens on). */
 	frameStack(): void;
+	/**
+	 * In the all-levels view, keep one level solid and fade the others almost away (e.g.
+	 * the level under the pointer); null shows them all. Ignored outside that view.
+	 */
+	setFocusLevel(level: number | null): void;
 	setPins(pins: Pin[]): void;
 	/**
 	 * Build a level's meshes ahead of time (in the background) so showing it later is
@@ -139,6 +145,16 @@ export interface HollowMap {
 }
 
 const easeIn = (t: number) => t * t;
+/** Share of the levels' squared-off built area the hover hitboxes cover (centred). */
+const CAKE_AREA = 0.125;
+/** Share of the space between levels the hitboxes fill (1 = stacked with no gaps). */
+const CAKE_HEIGHT = 0.5;
+/** Height (blocks) of the slice when only one level is shown. */
+const SINGLE_SLICE = 30;
+/** Opacity of the other levels while one is focused in the all-levels view. */
+const FOCUS_DIM = 0.1;
+/** Time constant of the focus fade, in ms. */
+const FOCUS_FADE_MS = 60;
 /** Run when the page is idle (soon, at the latest). */
 const idle = (fn: () => void) =>
 	typeof requestIdleCallback === 'function'
@@ -157,10 +173,86 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 		camera: { maxDistance: Math.max(MAX_DISTANCE, opts.stackDistance ?? 0) }
 	});
 
+	// ── Hover hitboxes (all-levels view) ────────────────────────────────────
+	// The stack is a layered cake: one square box per level, all the same size, stacked with
+	// no gaps. A level's slice runs halfway up to the level above and halfway down to the one
+	// below (the top and bottom slices reach as far past their level as the next one in).
+	// The pointer picks the first slice its ray enters, so pointing through a hole in a level
+	// still lands on that level, and its sides read as levels by height.
+	let cakeTiles: readonly [number, number, number, number] | null = null;
+	/** The shared square footprint, in tiles: every level's built area, squared off and shrunk. */
+	const cakeFootprint = () => {
+		if (cakeTiles) return cakeTiles;
+		let [minX, minY, maxX, maxY] = [Infinity, Infinity, -Infinity, -Infinity];
+		for (const floor of floors.values())
+			floor.map.grid.forEach((row, y) =>
+				row.forEach((t, x) => {
+					if (t === 'void' || t === 'rock') return;
+					minX = Math.min(minX, x);
+					maxX = Math.max(maxX, x + 1);
+					minY = Math.min(minY, y);
+					maxY = Math.max(maxY, y + 1);
+				})
+			);
+		const cx = (minX + maxX) / 2;
+		const cy = (minY + maxY) / 2;
+		const half = (Math.max(maxX - minX, maxY - minY) / 2) * Math.sqrt(CAKE_AREA);
+		const b = [cx - half, cy - half, cx + half, cy + half] as const;
+		// Only final once every level is in.
+		if (floors.size === LEVELS.length) cakeTiles = b;
+		return b;
+	};
+	/** World-space box of each shown level's slice, top level first. */
+	const cakeSlices = () => {
+		const shown = map
+			.layers()
+			.filter((l) => l.visible && floors.has(levelOf(l.id)))
+			.sort((a, b) => b.y - a.y);
+		if (!shown.length) return [];
+		const [minX, minY, maxX, maxY] = cakeFootprint();
+		const ys = shown.map((l) => map.toWorld(0, 0, 0, l.id).y);
+		const gap = ys.length > 1 ? ys[0] - ys[1] : SINGLE_SLICE;
+		return shown.map((l, i) => {
+			// Halfway to each neighbour, then scaled about the level by CAKE_HEIGHT.
+			const up = i > 0 ? (ys[i - 1] - ys[i]) / 2 : gap / 2;
+			const down =
+				i < ys.length - 1 ? (ys[i] - ys[i + 1]) / 2 : i > 0 ? (ys[i - 1] - ys[i]) / 2 : gap / 2;
+			const top = ys[i] + up * CAKE_HEIGHT;
+			const bottom = ys[i] - down * CAKE_HEIGHT;
+			const box = new THREE.Box3().setFromPoints([
+				map.toWorld(minX, minY, 0, null).setY(bottom),
+				map.toWorld(maxX, maxY, 0, null).setY(top)
+			]);
+			return { level: levelOf(l.id), box };
+		});
+	};
+	const slabHit = new THREE.Vector3();
+	/** The level whose slice the pointer's ray enters first. */
+	const slabPick = (e: PointerEvent): Pick | null => {
+		const rect = container.getBoundingClientRect();
+		const ray = map.rayAt(e.clientX - rect.left, e.clientY - rect.top);
+		let best: Pick | null = null;
+		let nearest = Infinity;
+		const [minX, minY, maxX, maxY] = cakeFootprint();
+		for (const { level, box } of cakeSlices()) {
+			if (!ray.intersectBox(box, slabHit)) continue;
+			const d = slabHit.distanceToSquared(ray.origin);
+			if (d >= nearest) continue;
+			nearest = d;
+			best = {
+				level,
+				room: null,
+				tile: { x: Math.floor((minX + maxX) / 2), y: Math.floor((minY + maxY) / 2) }
+			};
+		}
+		return best;
+	};
+
 	const toPick = (p: { layer: string; tile: Point; room: Room | null } | null): Pick | null =>
 		p && { tile: p.tile, room: p.room, level: levelOf(p.layer) };
-	map.on('hover', (p) => opts.onHover(toPick(p)));
-	map.on('click', (p) => opts.onClick(toPick(p)));
+	// In the all-levels view a pick names a level, not a room (see the hover hitboxes above).
+	map.on('hover', (p, e) => opts.onHover(overview ? (e ? slabPick(e) : null) : toPick(p)));
+	map.on('click', (p, e) => opts.onClick(overview ? slabPick(e) : toPick(p)));
 	if (opts.onView) map.on('view', opts.onView);
 
 	// ── Floors ──────────────────────────────────────────────────────────────
@@ -313,10 +405,21 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 		SHAFTS.forEach((info, s) => {
 			const g = crown.shaftGates[s];
 			if (!g) return;
-			const { wall, roof, well } = shaftColors(s);
+			const { roof, well } = shaftColors(s);
 			// The sealed Ascent carries on above the Crown, toward the surface.
 			const top = stackY(0) + SHAFT_H + (info.status === 'sealed' ? 8 : 0);
-			boxes.push({ x: g.x, y: g.y, w: g.w, h: g.h, z0: bottom, z1: top, color: wall, roof });
+			// Shaded by face like the rooms (see SIDE_SHADE in the map's mesh.ts).
+			boxes.push({
+				x: g.x,
+				y: g.y,
+				w: g.w,
+				h: g.h,
+				z0: bottom,
+				z1: top,
+				color: roof,
+				roof,
+				bottom: roof.clone().multiplyScalar(UNDERSIDE_SHADE)
+			});
 			wells.push({
 				x: g.x + 0.7,
 				y: g.y + 0.7,
@@ -327,7 +430,7 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 			});
 		});
 		shaftColumns = [
-			map.addOverlay({ type: 'boxes', boxes, blocky: true, seed: 7919, visible: false }),
+			map.addOverlay({ type: 'boxes', boxes, lit: false, sideShade: SIDE_SHADE, visible: false }),
 			map.addOverlay({ type: 'rects', rects: wells, order: 2, visible: false })
 		];
 	};
@@ -427,8 +530,23 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 	// ── Pins ────────────────────────────────────────────────────────────────
 	let markers: MarkerHandle[] = [];
 
+	// ── Focus level (all-levels view) ───────────────────────────────────────
+	let focusLevel: number | null = null;
+	/** Ease every layer towards its target opacity (frame-rate independent). */
+	const stepFocus = (dt: number) => {
+		const k = 1 - Math.exp(-dt / FOCUS_FADE_MS);
+		for (const l of map.layers()) {
+			const target =
+				!overview || focusLevel === null || levelOf(l.id) === focusLevel ? 1 : FOCUS_DIM;
+			if (l.opacity === target) continue;
+			const next = l.opacity + (target - l.opacity) * k;
+			l.setOpacity(Math.abs(target - next) < 0.01 ? target : next);
+		}
+	};
+
 	// ── Per frame ───────────────────────────────────────────────────────────
-	const off = map.on('frame', (now) => {
+	const off = map.on('frame', (now, dt) => {
+		stepFocus(dt);
 		stepTransition(now);
 		stepDip(now);
 		for (const o of rideParts) o.setVisible(overview);
@@ -642,6 +760,9 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 				if (crown && floors.length === LEVELS.length) buildShaftColumns(crown);
 				self.frameStack();
 			});
+		},
+		setFocusLevel(level) {
+			focusLevel = level;
 		},
 		frameStack() {
 			// Pulled back and lifted a touch so the top levels clear the search/directions panel.

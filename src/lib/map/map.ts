@@ -40,7 +40,8 @@ export interface MapView {
 }
 
 export interface MapEvents {
-	hover: (pick: MapPick | null) => void;
+	/** `event` is the pointer move (none when the pointer leaves the map). */
+	hover: (pick: MapPick | null, event?: PointerEvent) => void;
 	click: (pick: MapPick | null, event: PointerEvent) => void;
 	/** Camera distance/heading changed (rounded; fires only on change). */
 	view: (view: MapView) => void;
@@ -127,6 +128,8 @@ export interface TunnelMapView {
 	project(x: number, y: number, z?: number, layer?: string | null): Point | null;
 	/** Pick at container pixel coordinates. */
 	pickAt(px: number, py: number): MapPick | null;
+	/** The camera ray through container pixel coordinates, in world space. */
+	rayAt(px: number, py: number): THREE.Ray;
 
 	/** Escape hatch for anything the API doesn't cover. */
 	readonly three: {
@@ -220,7 +223,8 @@ export function createMap(container: HTMLElement, options: MapOptions = {}): Tun
 	controls.zoomToCursor = true;
 	controls.minDistance = cam.minDistance ?? 10;
 	controls.maxDistance = cam.maxDistance ?? 520;
-	controls.maxPolarAngle = cam.maxPolarAngle ?? Math.PI * 0.42;
+	// Orbit all the way over: from straight overhead (0) to straight underneath (π).
+	controls.maxPolarAngle = cam.maxPolarAngle ?? Math.PI;
 	camera.position.set(0, 160, 150);
 	controls.target.set(0, 0, 0);
 
@@ -334,7 +338,7 @@ export function createMap(container: HTMLElement, options: MapOptions = {}): Tun
 	let down: Point | null = null;
 	const onDown = (e: PointerEvent) => (down = { x: e.clientX, y: e.clientY });
 	const onMove = (e: PointerEvent) => {
-		if (e.buttons === 0 && listeners.hover.size) emit('hover', local(e));
+		if (e.buttons === 0 && listeners.hover.size) emit('hover', local(e), e);
 	};
 	const onUp = (e: PointerEvent) => {
 		if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < tolerance)
@@ -346,6 +350,11 @@ export function createMap(container: HTMLElement, options: MapOptions = {}): Tun
 	el.addEventListener('pointermove', onMove);
 	el.addEventListener('pointerup', onUp);
 	el.addEventListener('pointerleave', onLeave);
+
+	// ── Cursors ─────────────────────────────────────────────────────────────
+	// While a gesture runs the canvas shows what it does (grab, rotate, zoom); at rest it
+	// inherits the container's cursor, so the page can show a pointer over clickable rooms.
+	const gesture = gestureCursor(el, controls);
 
 	// ── Camera motion ───────────────────────────────────────────────────────
 	let fly: { x: number; z: number; dist: number; dir?: THREE.Vector3 } | null = null;
@@ -609,6 +618,12 @@ export function createMap(container: HTMLElement, options: MapOptions = {}): Tun
 			};
 		},
 		pickAt,
+		rayAt(px, py) {
+			const w = container.clientWidth || 1;
+			const h = container.clientHeight || 1;
+			raycaster.setFromCamera(ndc.set((px / w) * 2 - 1, -(py / h) * 2 + 1), camera);
+			return raycaster.ray.clone();
+		},
 
 		three: { renderer, scene, camera, controls },
 		dispose() {
@@ -621,12 +636,83 @@ export function createMap(container: HTMLElement, options: MapOptions = {}): Tun
 			el.removeEventListener('pointermove', onMove);
 			el.removeEventListener('pointerup', onUp);
 			el.removeEventListener('pointerleave', onLeave);
+			gesture.dispose();
 			for (const fns of Object.values(listeners)) fns.clear();
 			markers.clear();
 			veil.remove();
 			disposeTree(scene);
 			renderer.dispose();
 			el.remove();
+		}
+	};
+}
+
+// ── Gesture cursors ─────────────────────────────────────────────────────────
+/** A circular arrow (there is no standard "rotate" cursor), outlined so it reads on any map. */
+const ROTATE_SVG =
+	'<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">' +
+	'<g stroke="#000" stroke-width="4.5"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 3v4.5h-4.5"/></g>' +
+	'<g stroke="#fff" stroke-width="2"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 3v4.5h-4.5"/></g>' +
+	'</svg>';
+const ROTATE_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(ROTATE_SVG)}") 12 12, move`;
+
+/**
+ * Show what the camera gesture under way does: a closed hand while panning, a rotate
+ * arrow while orbiting, a vertical resize while dollying, and zoom in/out while the
+ * wheel turns. Mirrors MapControls' bindings (left pans, right rotates, middle dollies;
+ * ctrl/meta/shift swaps pan and rotate). At rest the cursor is cleared so the canvas
+ * inherits its container's.
+ */
+function gestureCursor(el: HTMLElement, controls: MapControls) {
+	let drag = '';
+	let wheel = '';
+	let wheelTimer: ReturnType<typeof setTimeout> | undefined;
+	const apply = () => (el.style.cursor = drag || wheel);
+	// OrbitControls writes an inline `cursor: auto` on connect, which would block inheriting.
+	apply();
+
+	const onDown = (e: PointerEvent) => {
+		if (!controls.enabled || e.pointerType === 'touch') return;
+		const swap = e.ctrlKey || e.metaKey || e.shiftKey;
+		const pan = controls.enablePan ? 'grabbing' : '';
+		const rotate = controls.enableRotate ? ROTATE_CURSOR : '';
+		if (e.button === 0) drag = swap ? rotate : pan;
+		else if (e.button === 2) drag = swap ? pan : rotate;
+		else if (e.button === 1) drag = controls.enableZoom ? 'ns-resize' : '';
+		else return;
+		apply();
+	};
+	const onUp = () => {
+		if (!drag) return;
+		drag = '';
+		apply();
+	};
+	const onWheel = (e: WheelEvent) => {
+		if (!controls.enabled || !controls.enableZoom || !e.deltaY) return;
+		wheel = e.deltaY < 0 ? 'zoom-in' : 'zoom-out';
+		apply();
+		clearTimeout(wheelTimer);
+		wheelTimer = setTimeout(() => {
+			wheel = '';
+			apply();
+		}, 250);
+	};
+
+	el.addEventListener('pointerdown', onDown);
+	el.addEventListener('lostpointercapture', onUp);
+	el.addEventListener('wheel', onWheel, { passive: true });
+	window.addEventListener('pointerup', onUp);
+	window.addEventListener('pointercancel', onUp);
+	window.addEventListener('blur', onUp);
+	return {
+		dispose() {
+			clearTimeout(wheelTimer);
+			el.removeEventListener('pointerdown', onDown);
+			el.removeEventListener('lostpointercapture', onUp);
+			el.removeEventListener('wheel', onWheel);
+			window.removeEventListener('pointerup', onUp);
+			window.removeEventListener('pointercancel', onUp);
+			window.removeEventListener('blur', onUp);
 		}
 	};
 }

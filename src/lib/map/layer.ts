@@ -135,6 +135,12 @@ export interface MapLayer {
 	raise(rooms: Room[], order?: number): void;
 	/** Multiply the tunnels' colours by `color` (e.g. a grey to dim them); null resets. */
 	setTunnelTint(color: Color | null): void;
+	/**
+	 * Fade the whole layer (meshes and the overlays attached to it) towards see-through:
+	 * 1 draws it as styled, 0 hides it. Survives restyles.
+	 */
+	setOpacity(opacity: number): void;
+	readonly opacity: number;
 	/** The resolved look of a room, or null when it isn't drawn. */
 	lookOf(room: Room): RoomLook | null;
 	/** Height of a room's roof above the layer floor in blocks (0 when not drawn). */
@@ -202,10 +208,11 @@ export class Layer implements MapLayer {
 	private raisedBody = new THREE.Group();
 	private raised: { rooms: Room[]; order: number } = { rooms: [], order: 8 };
 	private parts = new Map<string, THREE.Object3D[]>();
-	private tunnelMat: THREE.MeshLambertMaterial | null = null;
+	private tunnelMat: THREE.MeshBasicMaterial | null = null;
 	private tunnelTint: Color | null = null;
 	private raisedParts = new Map<string, THREE.Object3D[]>();
 	private hiddenParts = new Set<string>();
+	opacity = 1;
 	private looks: (RoomLook | null)[] = [];
 	private sinks: number[] = [];
 	/** Each room's look in mesher form, resolved with the looks. */
@@ -232,13 +239,18 @@ export class Layer implements MapLayer {
 	get y() {
 		return this.object.position.y;
 	}
+	/** Shown by `set`, regardless of a fade to 0. */
+	private shown = true;
 	get visible() {
-		return this.object.visible;
+		return this.shown;
 	}
 
 	set(t: { y?: number; visible?: boolean }) {
 		if (t.y !== undefined) this.object.position.y = t.y;
-		if (t.visible !== undefined) this.object.visible = t.visible;
+		if (t.visible !== undefined) {
+			this.shown = t.visible;
+			this.object.visible = t.visible && this.opacity > 0;
+		}
 	}
 
 	setStyle(style: LayerStyle) {
@@ -260,6 +272,40 @@ export class Layer implements MapLayer {
 	setTunnelTint(color: Color | null) {
 		this.tunnelTint = color;
 		this.tunnelMat?.color.set(color ?? 0xffffff);
+	}
+
+	setOpacity(opacity: number) {
+		if (opacity === this.opacity) return;
+		this.opacity = opacity;
+		this.applyOpacity();
+	}
+
+	/** Scale every material under the layer by its opacity, remembering how it was styled. */
+	private applyOpacity() {
+		const k = this.opacity;
+		this.object.visible = this.shown && k > 0;
+		this.object.traverse((o) => {
+			const mats = (o as THREE.Mesh).material;
+			if (!mats) return;
+			for (const m of Array.isArray(mats) ? mats : [mats]) {
+				const base = (m.userData.styled ??= {
+					opacity: m.opacity,
+					transparent: m.transparent,
+					depthWrite: m.depthWrite,
+					stencilWrite: m.stencilWrite
+				}) as Pick<THREE.Material, 'opacity' | 'transparent' | 'depthWrite' | 'stencilWrite'>;
+				const faded = k < 1;
+				const transparent = base.transparent || faded;
+				if (m.transparent !== transparent) m.needsUpdate = true;
+				m.transparent = transparent;
+				m.opacity = base.opacity * k;
+				m.depthWrite = faded ? false : base.depthWrite;
+				// A faded tunnel mustn't mark the stencil, or rooms on other layers would ghost
+				// wherever it crosses them on screen.
+				m.stencilWrite =
+					faded && m.stencilFunc === THREE.AlwaysStencilFunc ? false : base.stencilWrite;
+			}
+		});
 	}
 
 	raise(rooms: Room[], order = 8) {
@@ -397,9 +443,9 @@ export class Layer implements MapLayer {
 			body.add(m);
 			return m;
 		};
-		let tunnelMat: THREE.MeshLambertMaterial | null = null;
+		let tunnelMat: THREE.MeshBasicMaterial | null = null;
 		if (out.tunnels) {
-			tunnelMat = new THREE.MeshLambertMaterial({
+			tunnelMat = new THREE.MeshBasicMaterial({
 				vertexColors: true,
 				color: this.tunnelTint ?? 0xffffff,
 				stencilWrite: true,
@@ -409,7 +455,7 @@ export class Layer implements MapLayer {
 			});
 			mesh(toGeometry(out.tunnels), tunnelMat, 1);
 		}
-		const solidMats = ghostedPair((p) => new THREE.MeshLambertMaterial(p), ghost);
+		const solidMats = ghostedPair((p) => new THREE.MeshBasicMaterial(p), ghost);
 		const glowMats = ghostedPair((p) => new THREE.MeshBasicMaterial(p), ghost);
 		for (const { part, solid, glow } of out.parts) {
 			const objs: THREE.Object3D[] = [];
@@ -440,6 +486,7 @@ export class Layer implements MapLayer {
 			const visible = !this.hiddenParts.has(part);
 			for (const o of objs) o.visible = visible;
 		}
+		if (this.opacity < 1) this.applyOpacity();
 	}
 
 	/** Raised rooms are few, so they are built right away on the main thread. */
@@ -455,7 +502,7 @@ export class Layer implements MapLayer {
 		for (const { part, solid, glow } of out.parts) {
 			const objs: THREE.Object3D[] = [];
 			for (const [arrays, make] of [
-				[solid, () => new THREE.MeshLambertMaterial(params)],
+				[solid, () => new THREE.MeshBasicMaterial(params)],
 				[glow, () => new THREE.MeshBasicMaterial(params)]
 			] as const) {
 				if (!arrays) continue;
@@ -467,5 +514,6 @@ export class Layer implements MapLayer {
 			}
 			this.raisedParts.set(part, objs);
 		}
+		if (this.opacity < 1) this.applyOpacity();
 	}
 }

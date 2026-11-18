@@ -225,7 +225,7 @@
 
 <div class="absolute inset-0 overflow-hidden">
 	<div class="absolute top-0 left-0" style="width:100%;height:100%">
-		<div bind:this={container} class="absolute inset-0"></div>
+		<div bind:this={container} class="absolute inset-0 cursor-grab"></div>
 		<div class="pointer-events-none absolute inset-0 overflow-hidden" class:hidden={focus !== null}>
 			{#each LEVELS as l (l.code)}
 				{@const lv = levels[l.index]}

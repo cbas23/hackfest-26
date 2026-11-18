@@ -61,6 +61,8 @@ export interface BoxesOverlay extends Base {
 	boxes: (Rect & { z0: number; z1: number; color: Color; roof?: Color; bottom?: Color })[];
 	/** Shaded by the scene lights (default true); false keeps exact colours. */
 	lit?: boolean;
+	/** Multiply each side's colour by this, by the way it faces (e.g. baked light). */
+	sideShade?: Partial<Record<'n' | 's' | 'w' | 'e', number>>;
 	/** Build from 1×1×1 blocks with brightness jitter, like the map itself. */
 	blocky?: boolean;
 	seed?: number;
@@ -176,7 +178,17 @@ function boxesGeometry(s: BoxesOverlay, space: Space) {
 				e: [box.x + box.w + e, cy]
 			};
 			for (const d of ['n', 's', 'w', 'e'] as const)
-				if (!s.merge || !covered(...out[d])) b.side(d, x0, z0, x1, z1, box.z0, box.z1, wall);
+				if (!s.merge || !covered(...out[d]))
+					b.side(
+						d,
+						x0,
+						z0,
+						x1,
+						z1,
+						box.z0,
+						box.z1,
+						wall.clone().multiplyScalar(s.sideShade?.[d] ?? 1)
+					);
 			b.top(x0, z0, x1, z1, box.z1, roof);
 			b.top(wx(box.x), wz(box.y), wx(box.x + box.w), wz(box.y + box.h), box.z0, bottom, true);
 			return;
