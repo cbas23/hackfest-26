@@ -151,7 +151,7 @@
 
 <svelte:head><title>Tunnels · Map 1</title></svelte:head>
 
-<div class="min-h-screen bg-[#05060a] p-4 font-mono text-slate-300 sm:p-6">
+<div class="min-h-full bg-[#05060a] p-4 font-mono text-slate-300 sm:p-6">
 	<header class="mb-4 flex flex-wrap items-end justify-between gap-4">
 		<div>
 			<p class="text-[10px] tracking-[0.3em] text-slate-500">TUNNEL SURVEY · UNDERGROUND CITY</p>

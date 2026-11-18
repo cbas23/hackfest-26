@@ -3,7 +3,9 @@
 	import MapView from '#lib/components/home/map-view.svelte';
 </script>
 
-<main class="flex h-screen overflow-hidden">
+<svelte:head><title>The Hollow · Map</title></svelte:head>
+
+<main class="flex h-full overflow-hidden">
 	<AppSidebar />
 	<MapView />
 </main>

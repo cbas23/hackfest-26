@@ -3,10 +3,10 @@
 </script>
 
 <span
-	class="grid shrink-0 place-items-center rounded-full border-2 border-white/90 shadow-md"
+	class="grid shrink-0 place-items-center rounded-full border-2 border-foreground/90 shadow-md"
 	style="width:{size}px;height:{size}px;background:{color}"
 >
-	<svg viewBox="0 0 24 24" class="h-[60%] w-[60%] fill-white" aria-hidden="true">
+	<svg viewBox="0 0 24 24" class="h-[60%] w-[60%] fill-foreground" aria-hidden="true">
 		{#if kind === 'shaft'}
 			<path d="M7 3h10v18H7zM12 6l-3 3h6zM12 18l3-3H9z" />
 		{:else if kind === 'farm'}
