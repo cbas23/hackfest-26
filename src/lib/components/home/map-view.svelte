@@ -19,6 +19,8 @@
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import MinusIcon from '@lucide/svelte/icons/minus';
 	import ScanIcon from '@lucide/svelte/icons/scan';
+	import PhoneIcon from '@lucide/svelte/icons/phone';
+	import { resolve } from '$app/paths';
 
 	const hollow = createHollow(HOLLOW_SEED);
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- cache, never read by the template
@@ -414,6 +416,20 @@
 			</div>
 		{/each}
 	</div>
+
+	<!-- Hotline dashboard -->
+	<a
+		href={resolve('/hotline')}
+		class="absolute top-4 right-4 z-10 flex items-center gap-2 rounded-full border border-red-500/50 bg-background/90 px-3.5 py-1.5 text-sm font-semibold backdrop-blur transition hover:border-red-500 hover:bg-red-500/10"
+	>
+		<span class="relative flex size-2">
+			<span class="absolute inline-flex size-full animate-ping rounded-full bg-red-500 opacity-75"
+			></span>
+			<span class="relative inline-flex size-2 rounded-full bg-red-500"></span>
+		</span>
+		<PhoneIcon class="size-4" />
+		Hollow Hotline
+	</a>
 
 	<!-- Layer switcher -->
 	<div class="absolute top-4 left-1/2 z-10 -translate-x-1/2">
