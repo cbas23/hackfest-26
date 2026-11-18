@@ -4,6 +4,7 @@
  * route, impact tint, outlines, pins). Everything here is built from the library's
  * public primitives; reach for `hollowMap.map` to add your own.
  */
+import * as THREE from 'three';
 import type { Point, Room } from '#lib/tunnels/generate.js';
 import {
 	createMap,
@@ -92,6 +93,8 @@ export interface HollowMapOptions {
 	onView?(info: { distance: number; heading: number }): void;
 	/** A level change started (true) or finished (false); overlays should hide meanwhile. */
 	onTransition?(active: boolean): void;
+	/** Camera distance for the stacked view (default MAX_DISTANCE). Larger fits a smaller panel. */
+	stackDistance?: number;
 }
 
 export interface HollowMap {
@@ -109,6 +112,12 @@ export interface HollowMap {
 	setPins(pins: Pin[]): void;
 	/** Tint rooms on the shown floor (impact assessment); an empty list clears it. */
 	setImpact(rooms: { room: Room; color: string }[]): void;
+	/** Tint every building on whole levels (shown in the stacked view too), e.g. a risk heat map. */
+	setLevelTints(tints: { level: number; color: string; opacity?: number }[]): void;
+	/** A radar lying flat on a level: disc, range rings, a rotating sweep and a ping. Null clears it. */
+	setRadar(
+		radar: { level: number; x: number; y: number; radius: number; color?: string } | null
+	): void;
 	flyTo(x: number, y: number, opts?: { distance?: number; heading?: Point; tilt?: number }): void;
 	fitBounds(minX: number, minY: number, maxX: number, maxY: number): void;
 	zoomBy(factor: number): void;
@@ -125,7 +134,7 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 		background: BACKGROUND,
 		origin: { x: W / 2, y: H / 2 },
 		fog: NEAR_FOG,
-		camera: { maxDistance: MAX_DISTANCE }
+		camera: { maxDistance: Math.max(MAX_DISTANCE, opts.stackDistance ?? 0) }
 	});
 
 	const toPick = (p: { layer: string; tile: Point; room: Room | null } | null): Pick | null =>
@@ -357,6 +366,9 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 	const hover = outline('#e2e8f0', 0.55);
 	const selection = outline('#ffffff', 1);
 	let impact: OverlayHandle | null = null;
+	let levelTints: OverlayHandle[] = [];
+	let radar: OverlayHandle | null = null;
+	let radarRaf = 0;
 
 	// ── Pins ────────────────────────────────────────────────────────────────
 	let markers: MarkerHandle[] = [];
@@ -582,7 +594,7 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 			map.camera.flyTo({
 				x: W / 2,
 				y: H / 2,
-				distance: MAX_DISTANCE,
+				distance: opts.stackDistance ?? MAX_DISTANCE,
 				heading: { x: -0.55, y: -0.72 },
 				tilt: Math.asin(0.42 / Math.hypot(0.55, 0.42, 0.72))
 			});
@@ -619,14 +631,107 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 				visible: !overview
 			});
 		},
+		setLevelTints(tints) {
+			for (const t of levelTints) t.remove();
+			levelTints = [];
+			for (const t of tints) {
+				const layer = map.layer(layerId(t.level));
+				if (!layer) continue;
+				levelTints.push(
+					map.addOverlay({
+						type: 'rects',
+						layer: layer.id,
+						rects: layer.map.rooms
+							.filter((r) => r.kind === 'room')
+							.map((r) => ({
+								x: r.x,
+								y: r.y,
+								w: r.w,
+								h: r.h,
+								z: layer.heightOf(r) + 0.06,
+								color: t.color
+							})),
+						opacity: t.opacity ?? 0.75,
+						visible: true
+					})
+				);
+			}
+		},
 		flyTo: (x, y, o = {}) => map.camera.flyTo({ x, y, ...o }),
 		fitBounds: (minX, minY, maxX, maxY) =>
 			map.camera.fitBounds(minX, minY, maxX, maxY, { maxDistance: MAX_DISTANCE }),
 		zoomBy: (f) => map.camera.zoomBy(f),
 		resetNorth: () => map.camera.resetNorth(),
 		setPan: (x, y) => map.camera.setPan(x, y),
+		setRadar(r) {
+			cancelAnimationFrame(radarRaf);
+			radar?.remove();
+			radar = null;
+			if (!r) return;
+			const layer = map.layer(layerId(r.level));
+			if (!layer) return;
+			const R = r.radius;
+			const color = new THREE.Color(r.color ?? '#34d399');
+			const mat = (opacity: number) =>
+				new THREE.MeshBasicMaterial({
+					color,
+					transparent: true,
+					opacity,
+					side: THREE.DoubleSide,
+					depthWrite: false,
+					depthTest: false
+				});
+			const flat = (geo: THREE.BufferGeometry, opacity: number, order: number) => {
+				const m = new THREE.Mesh(geo, mat(opacity));
+				m.rotation.x = -Math.PI / 2;
+				m.renderOrder = 40 + order;
+				return m;
+			};
+			const root = new THREE.Group();
+			// Just above the street, in the level's own space, so it stacks and tilts with it.
+			root.position.set(r.x - W / 2, 0.2, r.y - H / 2);
+			const w = Math.max(0.35, R * 0.012);
+			root.add(flat(new THREE.CircleGeometry(R, 96), 0.1, 0));
+			for (const [f, o] of [
+				[1, 0.85],
+				[2 / 3, 0.45],
+				[1 / 3, 0.45]
+			])
+				root.add(flat(new THREE.RingGeometry(R * f - w, R * f, 128), o, 1));
+			// Cross-hairs.
+			root.add(flat(new THREE.PlaneGeometry(R * 2, w * 0.7), 0.3, 1));
+			root.add(flat(new THREE.PlaneGeometry(w * 0.7, R * 2), 0.3, 1));
+			// Sweep: a fading wedge, built from slices so the trailing edge fades out.
+			const sweep = new THREE.Group();
+			const SLICES = 14;
+			const WEDGE = Math.PI * 0.4;
+			for (let i = 0; i < SLICES; i++)
+				sweep.add(
+					flat(
+						new THREE.CircleGeometry(R, 8, (i / SLICES) * WEDGE, WEDGE / SLICES + 0.002),
+						0.5 * (i / SLICES) ** 1.6,
+						2
+					)
+				);
+			root.add(sweep);
+			const ping = flat(new THREE.RingGeometry(0.9, 1, 96), 0.8, 3);
+			root.add(ping);
+
+			radar = map.addOverlay({ type: 'object', layer: layer.id, object: root });
+			const t0 = performance.now();
+			const PERIOD = 2400;
+			const tick = (t: number) => {
+				const k = ((t - t0) % PERIOD) / PERIOD;
+				sweep.rotation.y = -((t - t0) / PERIOD) * Math.PI * 2;
+				ping.scale.setScalar(Math.max(0.01, R * k));
+				(ping.material as THREE.MeshBasicMaterial).opacity = 0.8 * (1 - k);
+				radarRaf = requestAnimationFrame(tick);
+			};
+			radarRaf = requestAnimationFrame(tick);
+		},
 		dispose() {
 			off();
+			cancelAnimationFrame(radarRaf);
 			map.dispose();
 		}
 	};
