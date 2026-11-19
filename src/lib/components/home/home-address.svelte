@@ -3,7 +3,6 @@
 	import { Input } from '#lib/components/ui/input/index.js';
 	import { LEVELS } from '#lib/hollow/data.js';
 	import { placeColor } from '#lib/hollow/nav.js';
-	import HouseIcon from '@lucide/svelte/icons/house';
 	import MapPinIcon from '@lucide/svelte/icons/map-pin';
 	import LocateIcon from '@lucide/svelte/icons/locate-fixed';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
@@ -48,7 +47,7 @@
 
 <section class="mx-3 mt-4" aria-labelledby="home-heading">
 	<h2 id="home-heading" class="mb-2 px-3 text-xs font-medium text-muted-foreground">Your home</h2>
-	<div class="flex flex-col gap-2 rounded-lg border bg-card p-3">
+	<div class="flex flex-col gap-2 px-3">
 		{#if place && !editing}
 			<div class="flex items-center gap-3">
 				<PlaceIcon kind="block" color={placeColor(place)} size={32} />
@@ -113,10 +112,5 @@
 				</Button>
 			{/if}
 		</div>
-		{#if !place && !home.pickingHome}
-			<p class="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-				<HouseIcon class="size-3" /> Saved in this browser only
-			</p>
-		{/if}
 	</div>
 </section>

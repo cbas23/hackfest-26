@@ -5,7 +5,7 @@ deep beneath the dead cities above. Air, light and water are metered down from t
 get worse the deeper you go. The app is a civic dashboard for it: a live 3D map of every level, its
 facilities, simulated sensor readings, infrastructure impact, and lung-sickness hotspots.
 
-> All data in this project (reports, history, sensors, sickness, telemetry, residents) is
+> All data in this project (reports, history, sensors, sickness, residents) is
 > **fictional and simulated**. Nothing is measured.
 
 ## ⚠️ The only real page is the Main Map (`/`)
@@ -17,8 +17,7 @@ only real page unless stated otherwise.**
 | ---------------- | ------------- | -------------------------------------------------------------------------- |
 | Map              | `/`           | **The real product.** Sidebar plus 3D map                                  |
 | Directions       | `/hollow`     | Scratch: an earlier map prototype with route finding and impact assessment |
-| Hotline          | `/hotline`    | Scratch: call-in report dashboard (ElevenLabs webhook, scoring, agents)    |
-| Tunnel generator | `/tunnel-gen` | Scratch: a 2D playground for the procedural tunnel generator               |
+| Tunnel generator | `/tunnel-gen` | Scratch, hidden from the nav: a 2D playground for the tunnel generator     |
 
 Scratch pages are there to prototype features and try out logic. Features that prove useful get
 moved into the Main Map. Don't polish the scratch pages for their own sake.
@@ -49,11 +48,6 @@ bun run bake:hollow            # regenerate src/lib/hollow/floors.json after cha
 bun scripts/validate-intel.ts  # check the fictional intel dataset against the map data
 ```
 
-Environment variables (optional, only used by the scratch Hotline page):
-
-- `ELEVENLABS_WEBHOOK_SECRET`: verifies signatures on `/api/hotline/webhook`
-- `VITE_HOTLINE_NUMBER`: phone number shown on the Hotline dashboard
-
 ## Architecture
 
 ```
@@ -63,9 +57,7 @@ src/
 │   ├── layout.css              Tailwind + shadcn theme tokens, plus the --map-* colours the 3D map reads
 │   ├── +page.svelte            MAIN MAP (real page): AppSidebar + MapView, client-only (ssr = false)
 │   ├── hollow/                 scratch: Directions prototype
-│   ├── hotline/                scratch: Hotline dashboard
-│   ├── tunnel-gen/             scratch: 2D generator playground
-│   └── api/hotline/            scratch backend: report (GET/POST/DELETE), events (SSE), webhook (ElevenLabs)
+│   └── tunnel-gen/             scratch: 2D generator playground (not in the nav)
 ├── lib/
 │   ├── components/
 │   │   ├── site-nav.svelte     Top navigation tabs
@@ -79,9 +71,7 @@ src/
 │   ├── map/                    Content-agnostic three.js renderer for tunnel maps
 │   ├── tunnels/generate.ts     Seeded procedural tunnel/room generator (TunnelMap)
 │   ├── hollow/                 The Hollow's world, data and map dressing
-│   ├── hotline/                Hotline scoring and agents (used by the scratch Hotline page)
-│   ├── intel/                  Fictional report dataset, shared vocabulary and history (not wired into a page yet)
-│   └── server/hotline.ts       In-memory report store + pub/sub for SSE
+│   └── intel/                  Fictional report dataset, shared vocabulary and history (not wired into a page yet)
 scripts/                        bake-hollow.ts, validate-intel.ts
 ```
 
@@ -114,10 +104,6 @@ scripts/                        bake-hollow.ts, validate-intel.ts
 
 ### Scratch-only modules
 
-- `#lib/hotline`: keyword extraction and risk scoring (`engine.ts`), seeded demo calls, named
-  buildings, telemetry, the "Contact Agent" water letter and the "Dash Agent" supply dispatch.
-  The API routes in `routes/api/hotline` and the in-memory store in `#lib/server/hotline.ts`
-  support it.
 - `#lib/intel`: a fictional set of reports from 10 to 14 November 2087, sixteen weeks of history,
   and a shared vocabulary of concept codes. It is validated against the map data but no page
   uses it yet.

@@ -10,8 +10,8 @@
 **The real pages are the Main Map (`/`, `src/routes/+page.svelte`) and the Control center
 (`/control`), which edits the map's live events. Nothing else is real unless the user states otherwise.**
 
-- `/hollow` (Directions), `/hotline` (Hotline), `/tunnel-gen` (Tunnel generator) and
-  `/api/hotline/*` are **scratch work** for prototyping features and logic.
+- `/hollow` (Directions) and `/tunnel-gen` (Tunnel generator, hidden from the nav but reachable
+  by URL) are **scratch work** for prototyping features and logic.
 - Product work goes into the Main Map (`src/lib/components/home/*`, `#lib/hollow`, `#lib/map`).
   If a feature from a scratch page is wanted, move it into the Main Map. Don't build it up on the
   scratch page.
@@ -107,8 +107,7 @@ Layers, bottom to top:
 7. App shell: `src/routes/+layout.svelte` (`SiteNav` + full-height content). The map routes use
    `ssr = false`.
 
-Scratch-only modules: `#lib/hotline` (call scoring, Contact/Dash agents), `#lib/server/hotline.ts`
-(in-memory store + SSE), `#lib/intel` (fictional reports, vocabulary, history; not used by a page
+Scratch-only modules: `#lib/intel` (fictional reports, vocabulary, history; not used by a page
 yet).
 
 ## Conventions
