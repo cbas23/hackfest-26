@@ -50,6 +50,7 @@
 	import * as ButtonGroup from '#lib/components/ui/button-group/index.js';
 	import * as ToggleGroup from '#lib/components/ui/toggle-group/index.js';
 	import PlaceCard from './place-card.svelte';
+	import HomeNotices from './home-notices.svelte';
 	import PlaceIcon from './place-icon.svelte';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import MinusIcon from '@lucide/svelte/icons/minus';
@@ -920,6 +921,9 @@
 			{/snippet}
 			{@render lensPanel('Tunnels', tunnelBody)}
 		{/if}
+
+		<!-- Notifications for the saved home -->
+		<HomeNotices class="absolute top-4 right-4 z-20" />
 
 		<!-- Map controls -->
 		<div class="absolute right-4 bottom-4 z-10 flex flex-col items-end gap-2">
