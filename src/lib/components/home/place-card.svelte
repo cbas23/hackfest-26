@@ -12,6 +12,8 @@
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Separator } from '#lib/components/ui/separator/index.js';
 	import XIcon from '@lucide/svelte/icons/x';
+	import HouseIcon from '@lucide/svelte/icons/house';
+	import { home, setAddress } from './home-state.svelte.js';
 	import PlaceIcon from './place-icon.svelte';
 
 	let {
@@ -60,7 +62,20 @@
 				<Card.Description class="truncate text-xs">{p.sub}</Card.Description>
 			</div>
 		</div>
-		<Card.Action>
+		<Card.Action class="flex items-center gap-0.5">
+			{#if p.kind === 'block'}
+				{@const isHome = home.address === p.key}
+				<Button
+					variant={isHome ? 'secondary' : 'ghost'}
+					size="sm"
+					class={isHome ? 'text-primary' : ''}
+					aria-pressed={isHome}
+					onclick={() => setAddress(isHome ? null : p.key)}
+					title={isHome ? 'Remove as my home' : 'Set as my home'}
+				>
+					<HouseIcon />{isHome ? 'My home' : 'Set as home'}
+				</Button>
+			{/if}
 			<Button variant="ghost" size="icon-sm" onclick={onclose} aria-label="Close">
 				<XIcon />
 			</Button>

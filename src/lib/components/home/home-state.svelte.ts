@@ -1,5 +1,6 @@
 import type { MapLens } from '#lib/hollow/mapStyle.js';
 import type { AlertKind } from '#lib/hollow/alerts.js';
+import type { Place } from '#lib/hollow/nav.js';
 
 /** Ids of the sidebar's data-layer cards (see `LAYERS` in app-sidebar.svelte). */
 export type LayerId = 'alerts' | 'sickness' | 'water' | 'airflow' | 'tunnels';
@@ -13,8 +14,34 @@ export const home = $state({
 	/** True while every level is stacked at its depth. */
 	overview: false,
 	/** Alerts card filter: one kind, or null for all of them. */
-	alertFilter: null as AlertKind | null
+	alertFilter: null as AlertKind | null,
+	/** The viewer's home block, as a place key ("<level>:<roomId>"); saved in this browser. */
+	address: loadAddress(),
+	/** True while the next click on the map sets the home block. */
+	pickingHome: false
 });
+
+const ADDRESS_KEY = 'hollow.home';
+
+function loadAddress(): string | null {
+	try {
+		return typeof localStorage === 'undefined' ? null : localStorage.getItem(ADDRESS_KEY);
+	} catch {
+		return null;
+	}
+}
+
+/** Set (or clear) the home block and remember it in this browser. */
+export function setAddress(key: string | null) {
+	home.address = key;
+	home.pickingHome = false;
+	try {
+		if (key) localStorage.setItem(ADDRESS_KEY, key);
+		else localStorage.removeItem(ADDRESS_KEY);
+	} catch {
+		// Storage can be blocked (private windows); the address still holds for this visit.
+	}
+}
 
 /** How each data-layer card repaints the map while it is open (null: it doesn't). */
 export const SECTION_LENS: Record<LayerId, MapLens | null> = {
@@ -36,6 +63,8 @@ export const openLens = (): MapLens | null =>
 interface MapNav {
 	goTo(index: number): void;
 	setOverview(on: boolean): void;
+	/** Go to a place's level, select it and fly the camera to it. */
+	focusPlace(place: Place): void;
 	/** Go to a level and fly the camera to a tile point on it. */
 	focus(level: number, x: number, y: number): void;
 	/** Show (or clear) a repair crew working at a tile point. */
@@ -52,6 +81,7 @@ export const registerMapNav = (n: MapNav | null) => {
 export const mapNav: MapNav = {
 	goTo: (index) => nav?.goTo(index),
 	setOverview: (on) => nav?.setOverview(on),
+	focusPlace: (place) => nav?.focusPlace(place),
 	focus: (level, x, y) => nav?.focus(level, x, y),
 	crew: (at) => nav?.crew(at),
 	refresh: () => nav?.refresh()

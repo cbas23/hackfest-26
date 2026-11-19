@@ -1,12 +1,9 @@
 <script lang="ts">
 	import * as Accordion from '#lib/components/ui/accordion/index.js';
 	import { ScrollArea } from '#lib/components/ui/scroll-area/index.js';
-	import { LEVELS } from '#lib/hollow/data.js';
-	import { formatDepth } from '#lib/hollow/format.js';
 	import { SICK_STEPS } from '#lib/hollow/sickness.js';
 	import { cn } from '#lib/utils.js';
 	import type { Component, Snippet } from 'svelte';
-	import LayersIcon from '@lucide/svelte/icons/layers';
 	import WindIcon from '@lucide/svelte/icons/wind';
 	import SirenIcon from '@lucide/svelte/icons/siren';
 	import DropletsIcon from '@lucide/svelte/icons/droplets';
@@ -18,12 +15,9 @@
 	import TunnelLegend from './tunnel-legend.svelte';
 	import { STATUS_INFO } from '#lib/hollow/sensors.js';
 	import AlertList from './alert-list.svelte';
+	import HomeAddress from './home-address.svelte';
 	import SicknessScale from './sickness-scale.svelte';
-	import { home, mapNav, type LayerId } from './home-state.svelte.js';
-
-	const choose = (v: number | 'all') => (v === 'all' ? mapNav.setOverview(true) : mapNav.goTo(v));
-	const isChosen = (v: number | 'all') =>
-		v === 'all' ? home.overview : !home.overview && home.level === v;
+	import { home, type LayerId } from './home-state.svelte.js';
 
 	interface Layer {
 		id: LayerId;
@@ -131,49 +125,13 @@
 	<TunnelLegend class="text-muted-foreground" />
 {/snippet}
 
-{#snippet levelButton(v: number | 'all', code: string, name: string, meta: string)}
-	{@const on = isChosen(v)}
-	<li>
-		<button
-			type="button"
-			aria-pressed={on}
-			onclick={() => choose(v)}
-			class={cn(
-				'flex h-9 w-full items-center gap-3 rounded-md px-3 text-left text-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring',
-				on
-					? 'bg-primary text-primary-foreground'
-					: 'text-muted-foreground hover:bg-sidebar-accent hover:text-foreground'
-			)}
-		>
-			<span class="flex w-6 items-center text-sm font-semibold">
-				{#if v === 'all'}<LayersIcon class="size-4" aria-hidden="true" />{:else}{code}{/if}
-			</span>
-			<span class={cn('flex-1 truncate', on && 'font-medium')}>{name}</span>
-			<span
-				class={cn(
-					'text-xs tabular-nums',
-					on ? 'text-primary-foreground/70' : 'text-muted-foreground'
-				)}>{meta}</span
-			>
-		</button>
-	</li>
-{/snippet}
-
 <aside
 	class="hidden h-full w-80 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex"
 >
 	<ScrollArea class="min-h-0 flex-1">
-		<section class="px-3 pt-4 pb-2" aria-labelledby="level-heading">
-			<h2 id="level-heading" class="px-3 pb-2 text-xs font-medium text-muted-foreground">Levels</h2>
-			<ul class="flex flex-col gap-0.5">
-				{@render levelButton('all', '', 'All levels', `${LEVELS.length} levels`)}
-				{#each LEVELS as l (l.code)}
-					{@render levelButton(l.index, l.code, l.name, formatDepth(l.depth))}
-				{/each}
-			</ul>
-		</section>
+		<HomeAddress />
 
-		<section class="mx-3 mt-3 mb-5 border-t border-sidebar-border pt-4">
+		<section class="mx-3 mt-4 mb-5">
 			<h2 id="layers-heading" class="mb-2 px-3 text-xs font-medium text-muted-foreground">
 				Information
 			</h2>

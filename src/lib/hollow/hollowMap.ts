@@ -17,10 +17,10 @@ import {
 	type TunnelMapView
 } from '#lib/map/index.js';
 import { LEVELS } from './data.js';
-import { floorStyle, type MapLens, SHAFT_PART, TUNNEL_H } from './mapStyle.js';
+import { floorStyle, type MapLens, SHAFT_H, SHAFT_PART, TUNNEL_H } from './mapStyle.js';
 import { simulateFloor } from './simulation.js';
 import { cssHex, onThemeChange, tokenHex } from './theme.js';
-import type { Floor } from './world.js';
+import { builtBounds, type Floor } from './world.js';
 import {
 	H,
 	layerId,
@@ -130,6 +130,8 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 
 	/** The level shown (or about to be) when the levels aren't stacked. */
 	let current: Floor | null = null;
+	/** The floors of the all-levels stack, once it has been shown (frameStack fits them). */
+	let stackFloors: Floor[] = [];
 	/** Whether the levels are stacked right now (flips when a dip swaps the layout). */
 	let overview = false;
 	const floors = new Map<number, Floor>();
@@ -370,10 +372,10 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 			const layers = all.map((f) => layerFor(f));
 			fx.dip(true, () => {
 				overview = true;
-				map.camera.setElevation(STACK_MID);
 				setFar(true);
 				for (const l of layers) l.set({ visible: true, y: stackY(levelOf(l.id)) });
 				ensureShaftColumns();
+				stackFloors = all;
 				self.frameStack();
 			});
 		},
@@ -381,14 +383,35 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 			focusLevel = level;
 		},
 		frameStack() {
-			// Pulled back and lifted a touch so the top levels clear the panels over the map.
-			map.camera.flyTo({
-				x: W / 2,
-				y: H / 2,
-				distance: opts.stackDistance ?? MAX_DISTANCE,
+			// Fit the built part of every level to the view (the old fixed shot before the stack
+			// has been shown, and for pages that ask for a set distance).
+			const view = {
 				heading: { x: -0.55, y: -0.72 },
 				tilt: Math.asin(0.42 / Math.hypot(0.55, 0.42, 0.72))
+			};
+			if (opts.stackDistance) {
+				map.camera.setElevation(STACK_MID);
+				map.camera.flyTo({ x: W / 2, y: H / 2, distance: opts.stackDistance, ...view });
+				return;
+			}
+			// Each level's built corners at its depth, and the shaft tops over the crown.
+			const pts = stackFloors.flatMap((f) => {
+				const [x0, y0, x1, y1] = builtBounds(f);
+				const z = stackY(f.index);
+				const top = f.index === 0 ? [z, z + SHAFT_H] : [z];
+				return top.flatMap((h) => [
+					{ x: x0, y: y0, z: h },
+					{ x: x1, y: y0, z: h },
+					{ x: x0, y: y1, z: h },
+					{ x: x1, y: y1, z: h }
+				]);
 			});
+			if (!pts.length) {
+				map.camera.setElevation(STACK_MID);
+				map.camera.flyTo({ x: W / 2, y: H / 2, distance: MAX_DISTANCE, ...view });
+				return;
+			}
+			map.camera.fitPoints(pts, { ...view, fill: 1 });
 		},
 		setPins(pins) {
 			for (const m of markers) m.remove();

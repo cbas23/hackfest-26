@@ -88,6 +88,14 @@ export interface MapCamera {
 		maxY: number,
 		o?: { padX?: number; padY?: number; tilt?: number; maxDistance?: number }
 	): void;
+	/**
+	 * Frame a set of points (tile x/y, world height z) so they fill `fill` of the view (default
+	 * 0.9) on the tighter axis, seen from `heading` and `tilt`. Orbits at their centre's height.
+	 */
+	fitPoints(
+		points: readonly { x: number; y: number; z: number }[],
+		o?: { heading?: Point; tilt?: number; fill?: number }
+	): void;
 	zoomBy(factor: number): void;
 	resetNorth(): void;
 	/** Continuous panning, e.g. from held keys: -1..1 on each axis (screen-relative). */
@@ -406,6 +414,42 @@ export function createMap(container: HTMLElement, options: MapOptions = {}): Tun
 				z: space.wz((minY + maxY) / 2),
 				dist,
 				dir: tiltDir(undefined, o.tilt ?? 1.05)
+			};
+		},
+		fitPoints(points, o = {}) {
+			if (!points.length) return;
+			const dir = tiltDir(o.heading, o.tilt ?? 0.75);
+			const forward = dir.clone().negate();
+			const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize();
+			const up = new THREE.Vector3().crossVectors(right, forward);
+			const fill = o.fill ?? 0.9;
+			const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * fill;
+			const tanH = tanV * camera.aspect;
+			const ws = points.map((p) => new THREE.Vector3(space.wx(p.x), p.z, space.wz(p.y)));
+			// Centre on the middle of the points' screen extent (near enough to orthographic).
+			const along = (axis: THREE.Vector3) => {
+				const d = ws.map((w) => w.dot(axis));
+				return (Math.min(...d) + Math.max(...d)) / 2;
+			};
+			const c = new THREE.Vector3()
+				.addScaledVector(right, along(right))
+				.addScaledVector(up, along(up))
+				.addScaledVector(forward, along(forward));
+			// A point at (r, u, f) from the centre projects inside the frame once the camera is at
+			// least |r| / tanH - f (and |u| / tanV - f) back from it.
+			let dist = 0;
+			const p = new THREE.Vector3();
+			for (const w of ws) {
+				p.copy(w).sub(c);
+				const f = p.dot(forward);
+				dist = Math.max(dist, Math.abs(p.dot(right)) / tanH - f, Math.abs(p.dot(up)) / tanV - f);
+			}
+			elevation = c.y;
+			fly = {
+				x: c.x,
+				z: c.z,
+				dist: THREE.MathUtils.clamp(dist, controls.minDistance, controls.maxDistance),
+				dir
 			};
 		},
 		zoomBy(factor) {
