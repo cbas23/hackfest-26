@@ -1,19 +1,21 @@
-import { resolved, type Action } from '#lib/hollow/response.js';
+import type { Action } from '#lib/hollow/response.js';
+import { reopenAllEvents, resolveEvents } from '#lib/live/events.svelte.js';
 import { mapNav } from './home-state.svelte.js';
 
 export interface Outcome {
 	id: number;
 	verb: string;
 	where: string;
-	/** Alerts resolved, including any that cleared with the root cause. */
+	/** Alerts resolved. */
 	count: number;
 	residents: number;
 }
 
-/** Dispatch simulation state, shared by the sidebar list and the map HUD. */
+/**
+ * Dispatch state, shared by the sidebar list and the map HUD. The fixes themselves are
+ * shared: a crew resolves the alert's events in Convex, so every viewer sees it fixed.
+ */
 export const response = $state({
-	/** Bumped whenever the set of fixes changes; read it to recompute alert state. */
-	version: 0,
 	/** Alert id a crew is working on right now. */
 	working: null as string | null,
 	/** The last finished fix, shown as a banner. */
@@ -24,34 +26,32 @@ export const response = $state({
 const WORK_MS = 2600;
 let seq = 0;
 
-/** Send a crew for an action: fly there, show it working, then resolve what it fixes. */
+/** Send a crew for an action: fly there, show it working, then resolve its events. */
 export function dispatch(action: Action) {
 	if (response.working) return;
-	// A 'cause' action is fixed at its root: the blackout upstream.
-	const target = action.cause ?? action.alert;
+	const target = action.alert;
 	response.working = target.id;
 	mapNav.focus(target.floor, target.x, target.y);
 	mapNav.crew({ level: target.floor, x: target.x, y: target.y });
-	setTimeout(() => {
-		resolved.add(target.id);
-		response.version++;
-		response.working = null;
-		mapNav.crew(null);
-		mapNav.refresh();
-		response.last = {
-			id: ++seq,
-			verb: action.cause ? 'Restore power' : action.verb,
-			where: target.where,
-			count: action.clears.length,
-			residents: action.residents
-		};
+	setTimeout(async () => {
+		try {
+			await resolveEvents(action.clears.flatMap((a) => a.events));
+			response.last = {
+				id: ++seq,
+				verb: action.verb,
+				where: target.where,
+				count: action.clears.length,
+				residents: action.residents
+			};
+		} finally {
+			response.working = null;
+			mapNav.crew(null);
+		}
 	}, WORK_MS);
 }
 
-/** Undo every fix (start the simulation over). */
+/** Reopen every fixed event (start the response over). */
 export function resetResponse() {
-	resolved.clear();
-	response.version++;
 	response.last = null;
-	mapNav.refresh();
+	void reopenAllEvents();
 }

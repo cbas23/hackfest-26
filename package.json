@@ -5,7 +5,8 @@
 	"type": "module",
 	"imports": {
 		"#lib": "./src/lib/index.js",
-		"#lib/*": "./src/lib/*"
+		"#lib/*": "./src/lib/*",
+		"#convex/*": "./convex/*"
 	},
 	"scripts": {
 		"dev": "vite dev",
@@ -16,7 +17,8 @@
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"lint": "prettier --check . && eslint .",
 		"format": "prettier --write .",
-		"bake:hollow": "bun scripts/bake-hollow.ts"
+		"bake:hollow": "bun scripts/bake-hollow.ts",
+		"dev:convex": "convex dev"
 	},
 	"devDependencies": {
 		"@eslint/js": "^10.0.1",
@@ -51,6 +53,7 @@
 		"vite": "^8.3.0"
 	},
 	"dependencies": {
+		"convex": "^1.51.0",
 		"three": "^0.187.0"
 	}
 }

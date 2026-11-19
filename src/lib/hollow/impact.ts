@@ -1,5 +1,5 @@
 import { placesOn, type Place, type PlaceKind } from './nav.js';
-import { facilityStatus, STATUS_INFO, type Status } from './sensors.js';
+import { STATUS_INFO, type FacilityStatus, type Status } from './sensors.js';
 import { perFloor, type Floor } from './world.js';
 import { SIM } from './simConfig.js';
 
@@ -130,11 +130,13 @@ function severityOf(status: Status, dependentShare: number): Status {
 	return order[Math.max(1, STATUS_INFO[status].rank - drop)];
 }
 
-/** Impact of a monitored facility's current status on the floor it serves, or null. */
-export function assessImpact(floor: Floor, facility: Place): ImpactAssessment | null {
-	if (facility.floor !== floor.index) return null;
-	const sensors = facilityStatus(floor, facility);
-	if (!sensors) return null;
+/** Impact of a monitored facility's status (its sensor readings) on the floor it serves, or null. */
+export function assessImpact(
+	floor: Floor,
+	facility: Place,
+	sensors: Pick<FacilityStatus, 'status'> | null
+): ImpactAssessment | null {
+	if (facility.floor !== floor.index || !sensors) return null;
 	const idx = indexFloor(floor);
 	const blocks = serviceAreas(floor, idx, facility.kind).get(facility.room.id) ?? [];
 	const exposure = SIM.impact.exposure[sensors.status];

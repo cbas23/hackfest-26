@@ -6,10 +6,10 @@
 	import { placeCentre, placeColor, type Place, type PlaceKind } from '#lib/hollow/nav.js';
 	import { createHollowMap, type HollowMap, type Pick } from '#lib/hollow/hollowMap.js';
 	import { STATUS_INFO, type Status } from '#lib/hollow/sensors.js';
-	import { getHollow, simulateFloor } from '#lib/hollow/simulation.js';
+	import { getHollow, sicknessTotals, simulateFloor } from '#lib/hollow/simulation.js';
+	import { connectLive, live } from '#lib/live/events.svelte.js';
 	import { radarOverlay } from '#lib/hollow/scene/radar.js';
 	import { floorBounds, type Floor } from '#lib/hollow/world.js';
-	import { sicknessTotals } from '#lib/hollow/sickness.js';
 	import {
 		ALERT_INFO,
 		ALERT_KINDS,
@@ -39,6 +39,8 @@
 	import MinusIcon from '@lucide/svelte/icons/minus';
 	import ScanIcon from '@lucide/svelte/icons/scan';
 
+	// Events (blackouts, air, water, tunnels, sickness) come live from Convex.
+	connectLive();
 	const hollow = getHollow();
 	const allFloors = () => LEVELS.map((l) => hollow.floor(l.index));
 
@@ -79,9 +81,20 @@
 		home.overview = overview;
 	});
 	const floor = $derived(hollow.floor(levelIndex));
-	const sim = $derived(simulateFloor(floor));
+	const sim = $derived.by(() => {
+		void live.version;
+		return simulateFloor(floor);
+	});
 	/** The simulation of the selected place's floor. */
-	const selectedSim = $derived(selected ? simulateFloor(hollow.floor(selected.floor)) : null);
+	const selectedSim = $derived.by(() => {
+		void live.version;
+		return selected ? simulateFloor(hollow.floor(selected.floor)) : null;
+	});
+	// Repaint the map whenever the events behind it change.
+	$effect(() => {
+		void live.version;
+		scene?.refreshLens();
+	});
 
 	// ── Levels ───────────────────────────────────────────────────────────────
 	function goTo(index: number) {
@@ -191,7 +204,7 @@
 				};
 			});
 		}
-		void response.version;
+		void live.version;
 		const floorAlerts = alertMode ? floorState(floor) : null;
 		const alertPins: PinSpec[] = floorAlerts
 			? floorAlerts.active
@@ -254,29 +267,27 @@
 	const alertMode = $derived(!!lens?.startsWith('alerts'));
 	$effect(() => scene?.setLens(lens));
 	/** Sick share across the shown level (or every level in the stacked view). */
-	const sickTotals = $derived(
-		lens === 'sickness' ? sicknessTotals(overview ? allFloors() : [floor]) : null
-	);
+	const sickTotals = $derived.by(() => {
+		void live.version;
+		return lens === 'sickness' ? sicknessTotals(overview ? allFloors() : [floor]) : null;
+	});
 	// ── Alerts lens ─────────────────────────────────────────────────────────
 	const alertList = $derived.by(() => {
 		if (!alertMode) return null;
 		const floors = overview ? allFloors() : [floor];
-		void response.version;
+		void live.version;
 		return floors.flatMap((f) => floorState(f).active);
 	});
 	/** Fixes so far across the shown levels, and the next best one. */
 	const fixedCount = $derived.by(() => {
 		if (!alertMode) return 0;
-		void response.version;
+		void live.version;
 		const floors = overview ? allFloors() : [floor];
-		return floors.reduce((n, f) => {
-			const st = floorState(f);
-			return n + st.fixed.length + st.cleared.length;
-		}, 0);
+		return floors.reduce((n, f) => n + floorState(f).fixed.length, 0);
 	});
 	const next = $derived.by(() => {
 		if (!alertMode) return null;
-		void response.version;
+		void live.version;
 		return bestAction(overview ? allFloors() : [floor]);
 	});
 	/** The outcome banner shows for a few seconds after each fix. */
@@ -321,7 +332,7 @@
 			return;
 		}
 		const rooms: { room: Room; color: string }[] = [];
-		void response.version;
+		void live.version;
 		for (const a of floorState(floor).active) {
 			if (a.severity !== 'critical' || (home.alertFilter && a.kind !== home.alertFilter)) continue;
 			const color =
@@ -741,7 +752,7 @@
 		<PlaceCard
 			class="absolute bottom-4 left-4 z-20"
 			place={selected}
-			sim={simulateFloor(hollow.floor(selected.floor))}
+			sim={selectedSim!}
 			color={placeColor(selected)}
 			{impact}
 			sickness={selectedSickness}

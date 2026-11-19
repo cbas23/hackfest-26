@@ -12,10 +12,9 @@
 	} from '#lib/hollow/nav.js';
 	import { createHollowMap, type HollowMap, type Pick } from '#lib/hollow/hollowMap.js';
 	import { routeOverlay } from '#lib/hollow/scene/route.js';
-	import { facilityStatus, STATUS_INFO, type Status } from '#lib/hollow/sensors.js';
-	import { assessImpact } from '#lib/hollow/impact.js';
+	import { STATUS_INFO, type Status } from '#lib/hollow/sensors.js';
 	import { floorBounds, type Floor } from '#lib/hollow/world.js';
-	import { getHollow } from '#lib/hollow/simulation.js';
+	import { getHollow, simulateFloor } from '#lib/hollow/simulation.js';
 
 	const hollow = getHollow();
 	const placesFor = placesOn;
@@ -326,7 +325,7 @@
 				label: p.label,
 				color: placeColor(p),
 				place: p,
-				status: facilityStatus(floor, p)?.status
+				status: simulateFloor(floor).status(p)?.status
 			});
 		}
 		if (route) {
@@ -377,7 +376,9 @@
 	const showNames = $derived(distance < 200);
 
 	// ── Impact assessment (selected facility → affected neighborhoods) ──────
-	const impact = $derived(selected ? assessImpact(hollow.floor(selected.floor), selected) : null);
+	const impact = $derived(
+		selected ? simulateFloor(hollow.floor(selected.floor)).impact(selected) : null
+	);
 	$effect(() => {
 		const show = impact?.active && impact.facility.floor === levelIndex;
 		scene?.setImpact(
@@ -816,7 +817,7 @@
 				<dl class="grid grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-1.5 text-xs">
 					<dt class="text-slate-400">Population</dt>
 					<dd class="col-span-2 text-slate-100">≈ {population(level.population)}</dd>
-					{#each [['Light', level.light, '#fde68a'], ['Air', level.air, '#7dd3fc'], ['Heat', level.heat, '#fb923c'], ['Power', floor.litShare, '#5eead4']] as const as [label, v, c] (label)}
+					{#each [['Light', level.light, '#fde68a'], ['Air', level.air, '#7dd3fc'], ['Heat', level.heat, '#fb923c'], ['Power', simulateFloor(floor).litShare, '#5eead4']] as const as [label, v, c] (label)}
 						<dt class="text-slate-400">{label}</dt>
 						<dd class="h-1.5 rounded bg-white/10">
 							<span class="block h-full rounded" style="width:{pct(v)};background:{c}"></span>
@@ -915,7 +916,7 @@
 	{#if selected}
 		{@const p = selected}
 		{@const pf = hollow.floor(p.floor)}
-		{@const sensors = facilityStatus(hollow.floor(p.floor), p)}
+		{@const sensors = simulateFloor(hollow.floor(p.floor)).status(p)}
 		<section
 			class="absolute bottom-4 left-4 z-20 max-h-[calc(100%-6rem)] w-[min(24rem,calc(100%-5.5rem))] overflow-y-auto rounded-2xl border border-white/10 bg-[#1f2638]/95 p-4 shadow-xl backdrop-blur"
 			aria-label={p.label}
@@ -950,8 +951,8 @@
 				{:else if p.kind !== 'block'}
 					{p.note}
 				{:else}
-					<span class={pf.lit[p.room.id] ? 'text-emerald-400' : 'text-slate-400'}
-						>{pf.lit[p.room.id] ? 'Powered' : 'Blackout'}</span
+					<span class={simulateFloor(pf).lit[p.room.id] ? 'text-emerald-400' : 'text-slate-400'}
+						>{simulateFloor(pf).lit[p.room.id] ? 'Powered' : 'Blackout'}</span
 					>
 					· ≈ {compact.format(pf.residents[p.room.id])} residents · {p.room.w}×{p.room.h} block, single
 					door

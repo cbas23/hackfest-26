@@ -9,7 +9,7 @@ import { FLOOR_CONFIG, LEVELS, SHAFTS, type FacilitySpec } from './data.js';
 import { decodeFloor, type BakedHollow } from './bake.js';
 import baked from './floors.json';
 import { hashPair } from '#lib/random.js';
-import { SIM, spread, streamSeed } from './simConfig.js';
+import { SIM, streamSeed } from './simConfig.js';
 
 export interface Floor {
 	index: number;
@@ -18,11 +18,8 @@ export interface Floor {
 	map: TunnelMap;
 	/** Gate room for each shaft index (same coordinates on every floor). */
 	shaftGates: Room[];
-	/** Room id → is the block currently powered. */
-	lit: boolean[];
 	/** Room id → estimated residents (habitation blocks only). */
 	residents: number[];
-	litShare: number;
 	/** Room id → the civic facility housed there (ventilation, water, clinic…). */
 	facilities: Map<number, FacilitySpec>;
 }
@@ -134,7 +131,7 @@ function bakedFor(seed: number): BakedHollow | null {
 
 export function createHollow(seed: number): Hollow {
 	const stored = bakedFor(seed);
-	/** Facility placement and power draw from the world stream; the tunnels use `seed` itself. */
+	/** Facility placement draws from the world stream; the tunnels use `seed` itself. */
 	const worldSeed = streamSeed(seed, 'world');
 	let generated: { crown: TunnelMap; gateSpecs: GateSpec[] } | null = null;
 	if (!stored) {
@@ -156,22 +153,13 @@ export function createHollow(seed: number): Hollow {
 		const gates = map.rooms.filter((r) => r.kind === 'gate');
 		const shaftGates = gateSpecs.map((_, i) => gates.find((g) => g.specIndex === i) ?? gates[i]);
 		const facilities = placeFacilities(map, level.facilities, floorSeed(worldSeed, index));
-		// Deeper floors lose power first: share of lit blocks tracks the level's light.
-		// Facilities and infrastructure are kept powered.
-		const lit = map.rooms.map(
-			(r) =>
-				r.kind !== 'room' ||
-				facilities.has(r.id) ||
-				hashPair(r.id, floorSeed(worldSeed, index)) < spread(SIM.world.powered, level.light)
-		);
 		const housing = map.rooms.filter((r) => r.kind === 'room' && !facilities.has(r.id));
 		const area = housing.reduce((s, r) => s + r.w * r.h, 0);
 		const perTile = (level.population * 1e6) / Math.max(1, area);
 		const residents = map.rooms.map((r) =>
 			r.kind === 'room' && !facilities.has(r.id) ? Math.round(r.w * r.h * perTile) : 0
 		);
-		const litShare = housing.filter((r) => lit[r.id]).length / Math.max(1, housing.length);
-		return { index, seed, map, shaftGates, lit, residents, litShare, facilities };
+		return { index, seed, map, shaftGates, residents, facilities };
 	};
 
 	cache.set(0, build(0, loadMap(0)));
@@ -201,6 +189,22 @@ export function perFloor<T>(fn: (floor: Floor) => T): (floor: Floor) => T {
 		if (cache.has(floor)) return cache.get(floor)!;
 		const value = fn(floor);
 		cache.set(floor, value);
+		return value;
+	};
+}
+
+/**
+ * Memoise per-floor data that also depends on an input (an event list, settings). Keeps the
+ * last result per floor and recomputes when the input changes identity, so replace inputs
+ * instead of mutating them.
+ */
+export function perFloorWith<K, T>(fn: (floor: Floor, input: K) => T) {
+	const cache = new WeakMap<Floor, { input: K; value: T }>();
+	return (floor: Floor, input: K): T => {
+		const hit = cache.get(floor);
+		if (hit && hit.input === input) return hit.value;
+		const value = fn(floor, input);
+		cache.set(floor, { input, value });
 		return value;
 	};
 }

@@ -11,7 +11,7 @@ import { HOLLOW_SEED } from './data.js';
 // ── Seeds ───────────────────────────────────────────────────────────────────
 
 /** The independent random streams the simulation draws from. */
-export type SimStream = 'world' | 'sickness' | 'sensors';
+export type SimStream = 'world' | 'sickness' | 'sensors' | 'events';
 
 /**
  * Each stream's seed is the city seed XOR a fixed salt, so one city seed drives all of them
@@ -21,7 +21,8 @@ export type SimStream = 'world' | 'sickness' | 'sensors';
 const STREAM_SALT: Record<SimStream, number> = {
 	world: 0,
 	sickness: 0x5eed ^ HOLLOW_SEED,
-	sensors: HOLLOW_SEED
+	sensors: HOLLOW_SEED,
+	events: 0xb1ac
 };
 
 /** The seed one simulation draws from, for a given city seed. */
@@ -54,28 +55,21 @@ export interface Metric {
 }
 
 export const SIM = {
-	/** Power and population (`world.ts`). Level-wide conditions live on `LEVELS` in `data.ts`. */
+	/** Population and facility placement (`world.ts`). Level-wide conditions live on `LEVELS` in `data.ts`. */
 	world: {
-		/**
-		 * Share of housing blocks with power: `min` on a pitch-dark level, plus `span` × the
-		 * level's light. Facilities and infrastructure always have power.
-		 */
-		powered: { min: 0.15, span: 0.85 } satisfies Spread,
 		/** Facilities go in chambers at least this many tiles across. */
 		facilityMinSize: 3
 	},
 
-	/** Lung-sickness reports (`sickness.ts`). "Per level down" compounds from L1. */
+	/**
+	 * Lung-sickness reports (`sickness.ts`). Where the hotspots are and how strong they are is
+	 * set by the shared `SicknessSettings` (Convex, edited in the control center); these are
+	 * the fixed parts of the model. "Per level down" compounds from L1.
+	 */
 	sickness: {
-		/** Background sick rate on L1, and the share of it each level down keeps. */
-		background: 0.14,
-		backgroundDecay: 0.75,
-		/** Hotspots on L1, and how many fewer each level down (always at least one). */
-		hotspots: 9,
-		hotspotsDrop: 1.3,
-		/** Share of the hotspots' size and heat each level down keeps. */
-		reachDecay: 0.82,
-		/** Hotspot radius in tiles and peak sick share, before scaling by reach. */
+		/** Background decays faster with depth than the hotspots: falloff ^ (level × this). */
+		backgroundDepthPower: Math.log(0.75) / Math.log(0.82),
+		/** Hotspot radius in tiles and peak sick share, before scaling by reach and the settings. */
 		radius: { min: 8, span: 18 } satisfies Spread,
 		peak: { min: 0.8, span: 0.3 } satisfies Spread,
 		/** Chance (on L1) of an isolated sick block outside any hotspot, and its score. */
@@ -85,10 +79,16 @@ export const SIM = {
 		reportShare: { min: 0.04, span: 0.16 } satisfies Spread
 	},
 
-	/** Sensor readings (`sensors.ts`). Readings pinned to the lore are on the facilities in `data.ts`. */
+	/**
+	 * Sensor readings (`sensors.ts`). Air and water readings follow their events; clinics and
+	 * plants (and the starter scenario's air and water events) use the stress model, with the
+	 * readings pinned to the lore on the facilities in `data.ts`.
+	 */
 	sensors: {
 		/** Per-reading noise around the level's stress (± half of this, in threshold units). */
 		jitter: 0.35,
+		/** A healthy reading sits up to this share of the way from `good` to `warning`. */
+		healthyDrift: 0.35,
 		/** What each kind of facility measures, and the thresholds that set its status. */
 		metrics: {
 			water: [
@@ -200,6 +200,18 @@ export const SIM = {
 				}
 			]
 		} satisfies Record<MonitoredKind, readonly Metric[]>
+	},
+
+	/** The starter scenario the control center loads (`scenario.ts`), drawn from the `events` stream. */
+	scenario: {
+		/** Blackouts per level: up to `max` × (1 − the level's light), at least `min`. */
+		blackouts: { min: 1, max: 5 },
+		/** Blackout radius in tiles, growing with the level's darkness. */
+		blackoutRadius: { min: 6, span: 14 } satisfies Spread,
+		/** Blocked tunnel stretches per level, and their length in tiles. */
+		blockedTunnels: { min: 1, span: 3 } satisfies Spread,
+		blockedLength: { min: 2, span: 4 } satisfies Spread,
+		blockedReasons: ['Rockfall', 'Flooded', 'Structural damage', 'Gas leak', 'Collapsed support']
 	},
 
 	/** Impact assessment (`impact.ts`). */

@@ -5,10 +5,12 @@
 	import RouteIcon from '@lucide/svelte/icons/route';
 	import PhoneIcon from '@lucide/svelte/icons/phone';
 	import PickaxeIcon from '@lucide/svelte/icons/pickaxe';
+	import RadioTowerIcon from '@lucide/svelte/icons/radio-tower';
 	import { cn } from '#lib/utils.js';
 
 	const links = [
 		{ href: resolve('/'), label: 'Map', icon: MapIcon },
+		{ href: resolve('/control'), label: 'Control center', icon: RadioTowerIcon },
 		{ href: resolve('/hollow'), label: 'Directions', icon: RouteIcon },
 		{ href: resolve('/hotline'), label: 'Hotline', icon: PhoneIcon, live: true },
 		{ href: resolve('/tunnel-gen'), label: 'Tunnel generator', icon: PickaxeIcon }

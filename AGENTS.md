@@ -5,10 +5,10 @@
 - **Add-ons**: prettier, eslint, tailwindcss, ai-tools
 - **UI**: Svelte 5 (runes) + SvelteKit 3, Tailwind 4, shadcn-svelte (bits-ui), three.js, lucide icons
 
-## ⚠️ ALL THE TABS EXCEPT FOR MAIN MAP ARE FOR SCRATCH WORK
+## ⚠️ ALL THE TABS EXCEPT MAIN MAP AND CONTROL CENTER ARE FOR SCRATCH WORK
 
-**The real page is the Main Map (`/`, `src/routes/+page.svelte`). It is the ONLY real page unless
-the user states otherwise.**
+**The real pages are the Main Map (`/`, `src/routes/+page.svelte`) and the Control center
+(`/control`), which edits the map's live events. Nothing else is real unless the user states otherwise.**
 
 - `/hollow` (Directions), `/hotline` (Hotline), `/tunnel-gen` (Tunnel generator) and
   `/api/hotline/*` are **scratch work** for prototyping features and logic.
@@ -25,7 +25,17 @@ The Hollow is a fictional underground city with seven levels, L1 The Crown (top)
 (bottom), joined by six shafts. The Main Map is a civic dashboard: a sidebar (level picker and
 data-layer cards) next to an interactive 3D map with facilities, simulated sensor status, impact
 assessment and lung-sickness hotspots. **All data is fictional and simulated.** Keep it labelled
-that way and keep it deterministic (seeded).
+that way.
+
+Two kinds of data:
+
+- **The map** (tunnels, rooms, facilities, residents) is built in the browser from `HOLLOW_SEED`.
+  It never changes and stays deterministic.
+- **Events** (blackouts, air quality, water cuts, blocked tunnels, sickness settings) live in
+  **Convex** (`convex/`). They change over time, are shared by every viewer, and are edited from the
+  Control center (`/control`, public for now). Each kind is its own table and is independent of the
+  others: a blackout doesn't stall vents or pumps. Events point into the map by level, tile
+  coordinates and facility place keys (`"<level>:<roomId>"`).
 
 ## Architecture
 
@@ -40,15 +50,20 @@ Layers, bottom to top:
    - `world.ts`: `createHollow(seed)` loads pre-baked `floors.json` (format in `bake.ts`).
      `perFloor(fn)` memoises per-floor derived data (use it instead of ad-hoc caches);
      `floorBounds` / `builtBounds` give a floor's extent.
+   - `events.ts`: plain types for the events (no Convex imports), mirrored by `convex/model.ts`.
    - `simulation.ts`: the entry point for simulated data. `getHollow()` is the one shared city
-     (don't call `createHollow` in pages), `simulateFloor(floor)` gives a floor's places,
-     sickness, sensor status and impact, and `snapshot()` dumps everything as plain data.
-     Seeds and tuning are in `simConfig.ts` (`SIM`, `streamSeed`): each simulation draws from
-     its own stream of the city seed. Sensor readings pinned to the lore go on the facility in
-     `data.ts` (`readings`). When a change should keep the data as it is, check that
-     `snapshot()` doesn't change.
-   - The models: `nav.ts` (places, `placeColor`, routes), `sensors.ts` (Detect), `impact.ts`
-     (Assess), `sickness.ts`; plus `format.ts` (number/depth formats for the UI)
+     (don't call `createHollow` in pages); `currentEvents()` / `setEvents()` hold the current
+     events (`#lib/live` keeps them in sync with Convex; pages that never connect get the
+     starter scenario); `simulateFloor(floor)` gives a floor's places, power, sickness, sensor
+     status, impact, alerts and blocked tiles for the current events, cached per events object
+     (replace event lists, never mutate them); `snapshot()` dumps everything as plain data.
+     Seeds and tuning are in `simConfig.ts` (`SIM`, `streamSeed`). Sensor readings pinned to
+     the lore go on the facility in `data.ts` (`readings`).
+   - The models: `nav.ts` (places, `placeColor`, routes), `power.ts` (blackouts → dark blocks),
+     `sensors.ts` (Detect: air/water from their events, clinics/plants from the stress model),
+     `impact.ts` (Assess), `sickness.ts` (hotspots from the shared `SicknessSettings`),
+     `alerts.ts`, `response.ts` (Respond), `scenario.ts` (the starter scenario and tunnel-run
+     helpers); plus `format.ts` (number/depth formats for the UI)
    - `mapStyle.ts` / `theme.ts`: palettes. All colours, including the shaft/facility/status
      colours in `data.ts` and `sensors.ts`, are CSS variables in `src/routes/layout.css`
      (`--map-*`, `--shaft-*`, `--facility-*`, `--status-*`), so change them in CSS, not in TS.
@@ -59,6 +74,9 @@ Layers, bottom to top:
      use are add-ons that attach on first use: `routeOverlay`, `radarOverlay`,
      `levelTintOverlay` (`scene/route.ts` etc., built on `hollowMap.hooks`).
    - `#lib/random.ts`: the shared seeded PRNG and hashes. Changing it changes every city.
+   - `#lib/live/events.svelte.ts`: the browser's link to Convex. `connectLive()` subscribes to
+     each event table separately and calls `setEvents`; read `live.version` in `$derived` /
+     `$effect` to recompute on changes; `mutate()` and `resolveEvents()` write back.
 4. Main Map UI, in `src/lib/components/home/`:
    - `app-sidebar.svelte` (levels + data-layer cards), `map-view.svelte` (3D map host and
      controls), `map-keys.ts` (keyboard control), `place-card.svelte` (selection details),
@@ -67,7 +85,13 @@ Layers, bottom to top:
      `registerMapNav` / `mapNav` (the sidebar drives the map), `SECTION_LENS` (an open sidebar
      card → map lens). New data layers: add the id to `LayerId`, a card (with a `content`
      snippet) to `LAYERS` in the sidebar, and a lens to `SECTION_LENS` / `mapStyle.ts`.
-5. App shell: `src/routes/+layout.svelte` (`SiteNav` + full-height content). The map routes use
+5. Control center, in `src/lib/components/control/`: `floor-canvas.svelte` (2D level map; clicks
+   place blackouts and blocked tunnels or pick facilities), one panel per event kind, and
+   `control-state.svelte.ts` (tool state and the mutations).
+6. Convex, in `convex/`: `schema.ts` (one table per event kind plus the `sickness` settings
+   document), `model.ts` (validators and checks), one file per table (`list`, `add`, `update`)
+   and `events.ts` (resolve / reopen / remove for any event, `loadScenario`, `clearEvents`).
+7. App shell: `src/routes/+layout.svelte` (`SiteNav` + full-height content). The map routes use
    `ssr = false`.
 
 Scratch-only modules: `#lib/hotline` (call scoring, Contact/Dash agents), `#lib/server/hotline.ts`
@@ -76,7 +100,13 @@ yet).
 
 ## Conventions
 
-- Import lib code as `#lib/...` with `.js` extensions (see `package.json` `imports`).
+- Import lib code as `#lib/...` and Convex code as `#convex/...` (e.g.
+  `#convex/_generated/api.js`), with `.js` extensions (see `package.json` `imports`).
+- Run `bun run dev:convex` next to `bun run dev`. It runs the Convex deployment, pushes
+  `convex/` and regenerates `convex/_generated/`. Its URL is `PUBLIC_CONVEX_URL` in `.env.local`
+  (declared in `src/env.ts`). Without it, the map runs offline on the starter scenario.
+- New kinds of events: add a table (`convex/model.ts`, `schema.ts`, its own file), its type to
+  `events.ts`, a subscription in `#lib/live`, a model, and a panel in the Control center.
 - Use shadcn-svelte components from `#lib/components/ui`. Add new ones with the shadcn-svelte CLI
   (see the `shadcn-svelte` skill) instead of hand-rolling them.
 - After changing the generator, `FLOOR_CONFIG`, the levels or the seed, run `bun run bake:hollow`.

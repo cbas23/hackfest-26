@@ -82,8 +82,8 @@
 			{:else if p.kind !== 'block'}
 				{p.note}
 			{:else}
-				<span class={pf.lit[p.room.id] ? 'text-success' : 'text-foreground'}
-					>{pf.lit[p.room.id] ? 'Powered' : 'Blackout'}</span
+				<span class={sim.lit[p.room.id] ? 'text-success' : 'text-foreground'}
+					>{sim.lit[p.room.id] ? 'Powered' : 'Blackout'}</span
 				>
 				· ≈ {formatCompact(pf.residents[p.room.id])} residents · {p.room.w}×{p.room.h} block, single door
 			{/if}

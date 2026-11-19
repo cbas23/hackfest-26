@@ -1,16 +1,22 @@
 import { LEVELS } from './data.js';
 import type { Place, PlaceKind } from './nav.js';
 import { hashPair, SALT } from '#lib/random.js';
+import { isActive, type FacilityEvent, type HollowEvents, type Severity } from './events.js';
 import { SIM, streamSeed, type Metric, type MonitoredKind, type Status } from './simConfig.js';
 import { perFloor, type Floor } from './world.js';
 
 /**
- * Simulated sensor readings for the Hollow's infrastructure (HollowWatch: the Detect step).
+ * Sensor readings for the Hollow's infrastructure (HollowWatch: the Detect step). All of
+ * it is simulated.
  *
- * Values are generated, not measured: each one is derived from how stressed the level is
- * (deeper, hotter, worse air) plus a little per-facility noise, so the same seed always
- * gives the same readings. Status comes from fixed thresholds (`SIM.sensors.metrics`), never
- * from an AI. Readings pinned to the lore are on the facilities in `data.ts`.
+ * - Ventilation and water: read off their events (`airQuality` / `waterCuts` in Convex). A
+ *   facility without an active event reads healthy; each event pushes one metric into its
+ *   severity's band. Status is the worst reading.
+ * - Clinics and plants: the stress model, derived from how strained the level is (deeper,
+ *   hotter, worse air) plus a little per-facility noise. The starter scenario uses the same
+ *   model to pick its first air and water events.
+ *
+ * Status always comes from fixed thresholds (`SIM.sensors.metrics`), never from an AI.
  */
 
 export type { MonitoredKind, Status };
@@ -36,7 +42,69 @@ export interface FacilityStatus {
 	readings: Reading[];
 }
 
-const METRICS: Record<MonitoredKind, readonly Metric[]> = SIM.sensors.metrics;
+export const METRICS: Record<MonitoredKind, readonly Metric[]> = SIM.sensors.metrics;
+
+export const isMonitored = (kind: PlaceKind): kind is MonitoredKind => kind in METRICS;
+
+const rank = (s: Status) => STATUS_INFO[s].rank;
+export const worstStatus = (statuses: Status[]) =>
+	statuses.reduce<Status>((a, b) => (rank(b) > rank(a) ? b : a), 'normal');
+
+function statusOf(m: Metric, v: number): Status {
+	const worse =
+		m.critical > m.good ? (a: number, b: number) => a >= b : (a: number, b: number) => a <= b;
+	if (worse(v, m.critical)) return 'critical';
+	if (worse(v, m.high)) return 'high';
+	if (worse(v, m.warning)) return 'warning';
+	return 'normal';
+}
+
+const reading = (m: Metric, value: number): Reading => ({
+	key: m.key,
+	label: m.label,
+	value,
+	text: `${value.toFixed(m.digits)} ${m.unit}`,
+	status: statusOf(m, value)
+});
+
+/** A value well inside a severity's band: halfway to the next threshold, or past critical. */
+export function bandValue(m: Metric, severity: Severity) {
+	if (severity === 'warning') return (m.warning + m.high) / 2;
+	if (severity === 'high') return (m.high + m.critical) / 2;
+	return m.critical + (m.critical - m.high) * 0.3;
+}
+
+// ── Event-driven readings (air, water) ──────────────────────────────────────
+
+/** A facility's sensor events, active ones only. */
+export function facilityEvents(events: HollowEvents, place: Place): FacilityEvent[] {
+	const list =
+		place.kind === 'air' ? events.airQuality : place.kind === 'water' ? events.waterCuts : [];
+	return list.filter((e) => e.facility === place.key && isActive(e));
+}
+
+/** Readings for a facility given its events (healthy where no event touches a metric). */
+export function readingsFromEvents(
+	floor: Floor,
+	place: Place,
+	kind: MonitoredKind,
+	events: FacilityEvent[]
+): FacilityStatus {
+	const seed = floor.index ^ streamSeed(floor.seed, 'sensors');
+	const readings = METRICS[kind].map((m, i): Reading => {
+		const mine = events.filter((e) => e.metric === m.key);
+		if (mine.length) {
+			// The worst event on this metric sets its value.
+			const worst = mine.reduce((a, b) => (rank(b.severity) > rank(a.severity) ? b : a));
+			return reading(m, worst.value ?? bandValue(m, worst.severity));
+		}
+		const drift = hashPair(place.room.id * 31 + i, seed, SALT.sensors) * SIM.sensors.healthyDrift;
+		return reading(m, m.good + (m.warning - m.good) * drift);
+	});
+	return { status: worstStatus(readings.map((r) => r.status)), readings };
+}
+
+// ── Stress model (clinics, plants, starter scenario) ────────────────────────
 
 /** How strained a level is for one kind of infrastructure, 0 (fine) to 1 (failing). */
 function stress(kind: MonitoredKind, floor: number) {
@@ -48,49 +116,37 @@ function stress(kind: MonitoredKind, floor: number) {
 	return depth * 0.9;
 }
 
-function statusOf(m: Metric, v: number): Status {
-	const worse =
-		m.critical > m.good ? (a: number, b: number) => a >= b : (a: number, b: number) => a <= b;
-	if (worse(v, m.critical)) return 'critical';
-	if (worse(v, m.high)) return 'high';
-	if (worse(v, m.warning)) return 'warning';
-	return 'normal';
-}
+/** Per floor: room id → status from the stress model, filled as places are asked for. */
+const stressCache = perFloor(() => new Map<number, FacilityStatus>());
 
-const worst = (statuses: Status[]) =>
-	statuses.reduce<Status>((a, b) => (STATUS_INFO[b].rank > STATUS_INFO[a].rank ? b : a), 'normal');
-
-const isMonitored = (kind: PlaceKind): kind is MonitoredKind => kind in METRICS;
-
-/** Per floor: room id → status, filled as places are asked for. */
-const statusCache = perFloor(() => new Map<number, FacilityStatus | null>());
-
-/** Sensor readings and overall status for a place on `floor`, or null if it has no sensors. */
-export function facilityStatus(floor: Floor, place: Place): FacilityStatus | null {
-	const cache = statusCache(floor);
+/** Readings from the stress model (and the lore's pinned readings). */
+export function stressReadings(floor: Floor, place: Place, kind: MonitoredKind): FacilityStatus {
+	const cache = stressCache(floor);
 	const hit = cache.get(place.room.id);
-	if (hit !== undefined) return hit;
-	let result: FacilityStatus | null = null;
-	if (isMonitored(place.kind)) {
-		const s = stress(place.kind, floor.index);
-		const pinned = floor.facilities.get(place.room.id)?.readings ?? {};
-		const noiseSeed = floor.index ^ streamSeed(floor.seed, 'sensors');
-		const readings = METRICS[place.kind].map((m, i): Reading => {
-			// t = 0 is the healthy value, t = 1 the critical threshold.
-			const noise = hashPair(place.room.id * 31 + i, noiseSeed, SALT.sensors);
-			const jitter = (noise - 0.5) * SIM.sensors.jitter;
-			const t = Math.min(1.1, Math.max(0, s * 0.95 + jitter - 0.05));
-			const value = pinned[m.key] ?? m.good + (m.critical - m.good) * t;
-			return {
-				key: m.key,
-				label: m.label,
-				value,
-				text: `${value.toFixed(m.digits)} ${m.unit}`,
-				status: statusOf(m, value)
-			};
-		});
-		result = { status: worst(readings.map((r) => r.status)), readings };
-	}
+	if (hit) return hit;
+	const s = stress(kind, floor.index);
+	const pinned = floor.facilities.get(place.room.id)?.readings ?? {};
+	const noiseSeed = floor.index ^ streamSeed(floor.seed, 'sensors');
+	const readings = METRICS[kind].map((m, i): Reading => {
+		// t = 0 is the healthy value, t = 1 the critical threshold.
+		const noise = hashPair(place.room.id * 31 + i, noiseSeed, SALT.sensors);
+		const jitter = (noise - 0.5) * SIM.sensors.jitter;
+		const t = Math.min(1.1, Math.max(0, s * 0.95 + jitter - 0.05));
+		return reading(m, pinned[m.key] ?? m.good + (m.critical - m.good) * t);
+	});
+	const result = { status: worstStatus(readings.map((r) => r.status)), readings };
 	cache.set(place.room.id, result);
 	return result;
+}
+
+/** Sensor readings and overall status for a place on `floor`, or null if it has no sensors. */
+export function facilityStatus(
+	floor: Floor,
+	place: Place,
+	events: HollowEvents
+): FacilityStatus | null {
+	if (!isMonitored(place.kind)) return null;
+	if (place.kind === 'air' || place.kind === 'water')
+		return readingsFromEvents(floor, place, place.kind, facilityEvents(events, place));
+	return stressReadings(floor, place, place.kind);
 }

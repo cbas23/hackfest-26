@@ -3,7 +3,8 @@ import type { Room } from '#lib/tunnels/generate.js';
 import { hash01, shade, type LayerStyle, type Prop, type RoomLook } from '#lib/map/index.js';
 import { FACILITY_INFO, LEVELS, SHAFTS, SHAFT_COLORS, type FacilityKind } from './data.js';
 import type { Floor } from './world.js';
-import { SICK_STEPS, sickStep, sicknessOf } from './sickness.js';
+import { SICK_STEPS, sickStep } from './sickness.js';
+import { simulateFloor } from './simulation.js';
 import { cssColor, token, type Token } from './theme.js';
 import type { AlertKind } from './alerts.js';
 import { floorState } from './response.js';
@@ -161,7 +162,8 @@ function facilityProps(kind: FacilityKind, r: Room, y: number): Prop[] {
 /** How a Hollow floor looks: tunnels, housing (dark in blackout), farms, plants, shafts, facilities. */
 export function floorStyle(floor: Floor, lens: MapLens | null = null): LayerStyle {
 	const c = paletteFor(floor.index);
-	const sickness = lens === 'sickness' ? sicknessOf(floor) : null;
+	const sim = simulateFloor(floor);
+	const sickness = lens === 'sickness' ? sim.sickness : null;
 	const steps = SICK_STEPS.map((_, i) => token(`map-sick-${(i + 1) as 1 | 2 | 3 | 4 | 5}`));
 	const muted = { wall: token('map-muted-wall'), roof: token('map-muted-roof') };
 	const alerts = lens?.startsWith('alerts') ? floorState(floor) : null;
@@ -289,7 +291,7 @@ export function floorStyle(floor: Floor, lens: MapLens | null = null): LayerStyl
 			}
 			if (r.kind === 'room') {
 				// Habitation: muted; blocks in blackout go darker.
-				const lit = floor.lit[r.id];
+				const lit = sim.lit[r.id];
 				return {
 					...base,
 					wall: lit ? c.placeWall : c.blockWallDark,

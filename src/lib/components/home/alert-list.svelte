@@ -13,6 +13,7 @@
 	import AlertIcon from './alert-icon.svelte';
 	import { home, mapNav } from './home-state.svelte.js';
 	import { dispatch, response } from './response-state.svelte.js';
+	import { live } from '#lib/live/events.svelte.js';
 
 	const hollow = getHollow();
 	const byRank = (a: HollowAlert, b: HollowAlert) =>
@@ -20,17 +21,16 @@
 
 	/** Active alerts (with their next step) and finished ones, for the shown level(s). */
 	const view = $derived.by(() => {
-		void response.version;
+		void live.version;
 		const floors = home.overview
 			? LEVELS.map((l) => hollow.floor(l.index))
 			: [hollow.floor(home.level)];
 		const active: { alert: HollowAlert; action: Action }[] = [];
-		const done: { alert: HollowAlert; byPower: boolean }[] = [];
+		const done: HollowAlert[] = [];
 		for (const f of floors) {
 			const st = floorState(f);
-			for (const a of st.active) active.push({ alert: a, action: actionFor(f, a, st) });
-			for (const a of st.fixed) done.push({ alert: a, byPower: false });
-			for (const a of st.cleared) done.push({ alert: a, byPower: true });
+			for (const a of st.active) active.push({ alert: a, action: actionFor(a) });
+			done.push(...st.fixed);
 		}
 		active.sort((x, y) => byRank(x.alert, y.alert));
 		return { active, done };
@@ -45,8 +45,8 @@
 
 <div class="flex flex-col gap-2">
 	<p>
-		Each alert shows why it happened and what to do next. Dispatch a crew to fix it; fixing a
-		blackout also clears the air and water alerts it caused.
+		Each alert shows why it happened and what to do next. Dispatch a crew to fix it; every viewer
+		sees the fix.
 	</p>
 
 	<div class="flex gap-1" role="group" aria-label="Filter alerts">
@@ -96,7 +96,7 @@
 		<ul class="flex max-h-96 flex-col gap-1.5 overflow-y-auto pr-1">
 			{#each rows as { alert: a, action }, i (a.id)}
 				{@const info = STATUS_INFO[a.severity]}
-				{@const busy = response.working === (action.cause ?? a).id}
+				{@const busy = response.working === a.id}
 				<li class="alert-in" style="animation-delay:{Math.min(i, 12) * 40}ms">
 					<div
 						class={cn(
@@ -170,11 +170,7 @@
 						>
 							<CornerDownRightIcon class="size-3 shrink-0 text-emerald-500" aria-hidden="true" />
 							<span class="flex min-w-0 flex-1 flex-col">
-								<span class="truncate font-medium text-foreground"
-									>{action.verb}{#if action.cause}<span class="font-normal text-muted-foreground">
-											· {action.cause.where.split(' · ')[0]}</span
-										>{/if}</span
-								>
+								<span class="truncate font-medium text-foreground">{action.verb}</span>
 								<span class="truncate text-[10px]"
 									>{#if action.clears.length > 1}Clears {action.clears.length} alerts ·
 									{/if}{action.advice}</span
@@ -187,7 +183,7 @@
 								class="flex shrink-0 items-center gap-1 rounded-md bg-emerald-600 px-2 py-1 text-[11px] font-medium text-white transition-colors outline-none hover:bg-emerald-500 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
 							>
 								<WrenchIcon class={cn('size-3', busy && 'animate-spin')} aria-hidden="true" />
-								{busy ? 'Working' : action.type === 'cause' ? 'Fix cause' : 'Dispatch'}
+								{busy ? 'Working' : 'Dispatch'}
 							</button>
 						</div>
 					</div>
@@ -205,27 +201,17 @@
 				<ChevronRightIcon class="ml-auto size-3 transition-transform group-open:rotate-90" />
 			</summary>
 			<ul class="flex flex-col gap-1 px-2 pb-2">
-				{#each view.done as { alert: a, byPower } (a.id)}
+				{#each view.done as a (a.id)}
 					<li class="alert-in flex items-center gap-1.5 text-[11px]">
 						<CircleCheckIcon class="size-3 shrink-0 text-emerald-500" aria-hidden="true" />
 						<span class="truncate text-foreground line-through decoration-emerald-500/60"
 							>{a.title}</span
 						>
 						<span class="truncate">{a.where.split(' · ')[0]}</span>
-						{#if byPower}<span class="ml-auto shrink-0 text-emerald-600 dark:text-emerald-400"
-								>by power fix</span
-							>{/if}
 					</li>
 				{/each}
 			</ul>
 		</details>
-	{/if}
-	{#if home.alertFilter !== 'blackout' && alerts.some((a) => a.chain[0]?.kind === 'blackout')}
-		<p class="text-[11px]">
-			<span class="font-semibold text-foreground"
-				>{alerts.filter((a) => a.chain[0]?.kind === 'blackout').length}</span
-			> of these start with a power cut. Fixing the blackout fixes them too.
-		</p>
 	{/if}
 	<p class="text-[10px]">Simulated alerts</p>
 </div>

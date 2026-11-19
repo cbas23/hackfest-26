@@ -13,3 +13,6 @@ src/lib/hollow/floors.json
 /.agents/
 /.claude/skills/
 skills-lock.json
+
+# Convex codegen
+/convex/_generated/

@@ -1,20 +1,26 @@
 import { LEVELS } from './data.js';
+import { isActive, type EventRef, type FacilityEvent } from './events.js';
 import { assessImpact, neighborhoodOf } from './impact.js';
-import { placeCentre, placesOn, type Place } from './nav.js';
-import { facilityStatus, STATUS_INFO, type Reading, type Status } from './sensors.js';
-import { perFloor, type Floor } from './world.js';
+import { placeCentre, type Place } from './nav.js';
+import {
+	readingsFromEvents,
+	STATUS_INFO,
+	type FacilityStatus,
+	type Reading,
+	type Status
+} from './sensors.js';
+import type { FloorSimulation } from './simulation.js';
+import type { Floor } from './world.js';
 
 /**
- * Blackout, air and water alerts (simulated). All three come from the seeded world:
- * - Blackouts: housing blocks that are dark (`floor.lit`), grouped by neighborhood. A
- *   neighborhood's severity is the share of its residents left in the dark.
- * - Air / water: ventilation and water facilities whose sensors read Warning or worse, with
- *   the blocks that depend on them (their service area, see impact.ts).
+ * Blackout, air and water alerts (simulated), read off the floor's events. Each kind is
+ * independent: a blackout doesn't stall the vents or the pumps.
+ * - Blackouts: one alert per blackout event, over the housing blocks it darkens. Its
+ *   severity is the share of the touched neighborhoods' residents left in the dark.
+ * - Air / water: one alert per ventilation or water facility with active events, with the
+ *   blocks that depend on it (its service area, see impact.ts).
  *
- * Each air and water alert carries a cause chain, read off the same data: when most of a
- * facility's service area is dark, the chain starts at the power cut (fans and pumps stall),
- * then the failing reading, then the effect on residents. That is the story the map tells:
- * one blackout cuts the vents and the pumps, and people get sick.
+ * Alerts for resolved events are kept apart (`resolved`), for the "fixed" list.
  */
 
 export type AlertKind = 'blackout' | 'air' | 'water';
@@ -38,7 +44,7 @@ export interface HollowAlert {
 	detail: string;
 	/** Residents affected (in the dark, breathing bad air, or on unsafe water). */
 	residents: number;
-	/** Residents who depend on the facility (air and water), for the power-starved test. */
+	/** Residents who depend on the facility (air and water) or are in the dark (blackouts). */
 	dependents: number;
 	/** Housing block (room) ids covered by the alert. */
 	blocks: number[];
@@ -49,21 +55,24 @@ export interface HollowAlert {
 	chain: ChainStep[];
 	/** The failing facility, for air and water alerts. */
 	place?: Place;
+	/** Its worst reading's metric key (e.g. `output` for a water supply cut). */
+	metric?: string;
+	/** The events behind the alert: fixing it resolves all of them. */
+	events: EventRef[];
 }
 
 /** What an alert lens paints on a block. */
 export type BlockAlert = Partial<Record<AlertKind, Status>>;
 
 export interface FloorAlerts {
+	/** Active alerts, worst first. */
 	alerts: HollowAlert[];
-	/** Room id → the alerts touching that block. */
+	/** Alerts whose events were all resolved. */
+	resolved: HollowAlert[];
+	/** Room id → the active alerts touching that block. */
 	blocks: Map<number, BlockAlert>;
 	/** Facilities currently alerting (room id → kind), drawn bright under the lens. */
 	sources: Map<number, AlertKind>;
-	/** Room id → the alert id that paints it, per kind (each block has at most one per kind). */
-	owner: Map<number, Partial<Record<AlertKind, string>>>;
-	/** Facility room id → its alert id. */
-	sourceOwner: Map<number, string>;
 }
 
 const rank = (s: Status) => STATUS_INFO[s].rank;
@@ -75,9 +84,6 @@ function blackoutSeverity(darkShare: number): Status {
 	return 'warning';
 }
 
-/** A service area counts as power-starved when this share of its residents is in the dark. */
-export const STARVED = 0.3;
-
 /** What a failing reading means, in plain words. */
 const READING_CAUSE: Record<string, string> = {
 	co2: 'CO₂ building up',
@@ -88,12 +94,18 @@ const READING_CAUSE: Record<string, string> = {
 	output: 'Recycler failing'
 };
 
-/** Public notice for a water alert, by severity. */
+/** Public notice for a water alert, by severity: quality problems, and supply cuts. */
 const WATER_TITLE: Record<Status, string> = {
 	normal: 'Water normal',
 	warning: 'Boil-water advisory',
 	high: 'Do-not-drink notice',
 	critical: 'Water contamination'
+};
+const SUPPLY_TITLE: Record<Status, string> = {
+	normal: 'Water normal',
+	warning: 'Low water pressure',
+	high: 'Water rationing',
+	critical: 'Water cut'
 };
 
 const AIR_TITLE: Record<Status, string> = {
@@ -116,105 +128,136 @@ function anchor(floor: Floor, ids: number[]) {
 const worstReading = (readings: Reading[]) =>
 	readings.reduce((a, b) => (rank(b.status) > rank(a.status) ? b : a));
 
-/** Every blackout, air and water alert on one floor, worst first. */
-export const alertsOn = perFloor((floor: Floor): FloorAlerts => {
+function blackoutAlerts(sim: FloorSimulation): HollowAlert[] {
+	const { floor } = sim;
 	const level = LEVELS[floor.index];
+	const out: HollowAlert[] = [];
+	for (const { event, blocks } of sim.power.outages) {
+		if (!blocks.length) continue;
+		const residents = blocks.reduce((s, b) => s + floor.residents[b], 0);
+		// The share of the touched neighborhoods left in the dark.
+		const touched = new Map<string, { name: string; population: number; dark: number }>();
+		for (const b of blocks) {
+			const n = neighborhoodOf(floor, b);
+			if (!n) continue;
+			const t = touched.get(n.id) ?? { name: n.name, population: n.population, dark: 0 };
+			t.dark += floor.residents[b];
+			touched.set(n.id, t);
+		}
+		const groups = [...touched.values()].sort((a, b) => b.dark - a.dark);
+		const population = groups.reduce((s, g) => s + g.population, 0);
+		out.push({
+			id: `blackout:${event.id}`,
+			kind: 'blackout',
+			severity: blackoutSeverity(residents / Math.max(1, population)),
+			floor: floor.index,
+			title: 'Blackout',
+			where: `${groups[0]?.name ?? 'Unknown'} · ${level.code} ${level.name}`,
+			detail: `${blocks.length} block${blocks.length === 1 ? '' : 's'} without power`,
+			residents,
+			dependents: residents,
+			blocks,
+			chain: [],
+			events: [{ table: 'blackouts', id: event.id }],
+			...anchor(floor, blocks)
+		});
+	}
+	return out;
+}
+
+function facilityAlert(
+	sim: FloorSimulation,
+	p: Place & { kind: 'air' | 'water' },
+	events: FacilityEvent[],
+	sensors: FacilityStatus
+): HollowAlert | null {
+	const { floor } = sim;
+	const level = LEVELS[floor.index];
+	const kind = p.kind;
+	const impact = assessImpact(floor, p, sensors);
+	if (!impact || sensors.status === 'normal') return null;
+	const severity = sensors.status;
+	const worst = worstReading(sensors.readings);
+	const chain: ChainStep[] = [
+		{ kind, label: READING_CAUSE[worst.key] ?? worst.label },
+		{
+			kind,
+			label: kind === 'air' ? 'Bad air' : worst.key === 'output' ? 'No water' : 'Unsafe water'
+		}
+	];
+	if (rank(severity) >= rank('high'))
+		chain.push({
+			kind: 'sickness',
+			label: kind === 'air' ? 'Lung sickness risk' : 'Waterborne illness risk'
+		});
+	const titles = kind === 'air' ? AIR_TITLE : worst.key === 'output' ? SUPPLY_TITLE : WATER_TITLE;
+	return {
+		id: `${kind}:${p.key}`,
+		kind,
+		severity,
+		floor: floor.index,
+		title: titles[severity],
+		where: `${p.label} · ${level.code} ${level.name}`,
+		detail: `${worst.label} ${worst.text}`,
+		residents: impact.active ? impact.affectedTotal : impact.dependentTotal,
+		dependents: impact.dependentTotal,
+		blocks: impact.neighborhoods.flatMap((n) => n.blocks),
+		...placeCentre(p),
+		chain,
+		place: p,
+		metric: worst.key,
+		events: events.map((e) => ({ table: kind === 'air' ? 'airQuality' : 'waterCuts', id: e.id }))
+	};
+}
+
+/** Every blackout, air and water alert on one floor, from its events. */
+export function alertsOn(sim: FloorSimulation): FloorAlerts {
+	const { floor, events } = sim;
 	const blocks = new Map<number, BlockAlert>();
-	const owner = new Map<number, Partial<Record<AlertKind, string>>>();
-	const sourceOwner = new Map<number, string>();
-	const mark = (id: number, kind: AlertKind, s: Status, alertId: string) => {
+	const sources = new Map<number, AlertKind>();
+	const mark = (id: number, kind: AlertKind, s: Status) => {
 		const b = blocks.get(id) ?? {};
 		b[kind] = worse(b[kind], s);
 		blocks.set(id, b);
-		const o = owner.get(id) ?? {};
-		o[kind] = alertId;
-		owner.set(id, o);
 	};
 	const alerts: HollowAlert[] = [];
+	const resolved: HollowAlert[] = [];
 
-	// Blackouts, one alert per neighborhood with dark blocks.
-	const dark = new Map<string, { name: string; population: number; ids: number[] }>();
-	for (const r of floor.map.rooms) {
-		if (r.kind !== 'room' || floor.lit[r.id] || !(floor.residents[r.id] > 0)) continue;
-		const n = neighborhoodOf(floor, r.id);
-		if (!n) continue;
-		const group = dark.get(n.id) ?? { name: n.name, population: n.population, ids: [] };
-		group.ids.push(r.id);
-		dark.set(n.id, group);
-	}
-	for (const [id, g] of dark) {
-		const residents = g.ids.reduce((s, b) => s + floor.residents[b], 0);
-		const severity = blackoutSeverity(residents / Math.max(1, g.population));
-		for (const b of g.ids) mark(b, 'blackout', severity, `blackout:${id}`);
-		alerts.push({
-			id: `blackout:${id}`,
-			kind: 'blackout',
-			severity,
-			floor: floor.index,
-			title: 'Blackout',
-			where: `${g.name} · ${level.code} ${level.name}`,
-			detail: `${g.ids.length} block${g.ids.length === 1 ? '' : 's'} without power`,
-			residents,
-			dependents: residents,
-			blocks: g.ids,
-			chain: [],
-			...anchor(floor, g.ids)
-		});
+	const outages = new Map(sim.power.outages.map((o) => [o.event.id, o.event]));
+	for (const a of blackoutAlerts(sim)) {
+		if (isActive(outages.get(a.events[0].id)!)) {
+			alerts.push(a);
+			for (const b of a.blocks) mark(b, 'blackout', a.severity);
+		} else resolved.push(a);
 	}
 
-	// Air and water: facilities that read Warning or worse, and the blocks they serve.
-	const sources = new Map<number, AlertKind>();
-	for (const p of placesOn(floor)) {
+	for (const p of sim.places) {
 		if (p.kind !== 'air' && p.kind !== 'water') continue;
-		const kind: AlertKind = p.kind;
-		const sensors = facilityStatus(floor, p);
-		if (!sensors || sensors.status === 'normal') continue;
-		const impact = assessImpact(floor, p);
-		if (!impact) continue;
-		const ids = impact.neighborhoods.flatMap((n) => n.blocks);
-		const severity = sensors.status;
-		const alertId = `${kind}:${p.key}`;
-		sources.set(p.room.id, kind);
-		sourceOwner.set(p.room.id, alertId);
-		for (const n of impact.neighborhoods)
-			for (const b of n.blocks) mark(b, kind, impact.active ? n.severity : 'warning', alertId);
-
-		const darkResidents = ids.reduce((s, b) => s + (floor.lit[b] ? 0 : floor.residents[b]), 0);
-		const starved = darkResidents / Math.max(1, impact.dependentTotal) >= STARVED;
-		const worst = worstReading(sensors.readings);
-		const chain: ChainStep[] = [];
-		if (starved) {
-			chain.push({ kind: 'blackout', label: 'Power cuts' });
-			chain.push({ kind, label: kind === 'air' ? 'Fans stall' : 'Pumps stall' });
+		const place = p as Place & { kind: 'air' | 'water' };
+		const all = (p.kind === 'air' ? events.airQuality : events.waterCuts).filter(
+			(e) => e.facility === p.key
+		);
+		if (!all.length) continue;
+		const active = all.filter(isActive);
+		if (active.length) {
+			const a = facilityAlert(sim, place, active, sim.status(p)!);
+			if (!a) continue;
+			alerts.push(a);
+			sources.set(p.room.id, a.kind);
+			const impact = sim.impact(p);
+			for (const n of impact?.neighborhoods ?? [])
+				for (const b of n.blocks) mark(b, a.kind, impact!.active ? n.severity : 'warning');
+		} else {
+			// Every event fixed: how it looked before, for the "fixed" list.
+			const before = readingsFromEvents(floor, p, place.kind, all);
+			const a = facilityAlert(sim, place, all, before);
+			if (a) resolved.push(a);
 		}
-		chain.push({ kind, label: READING_CAUSE[worst.key] ?? worst.label });
-		chain.push({ kind, label: kind === 'air' ? 'Bad air' : 'Unsafe water' });
-		if (rank(severity) >= rank('high'))
-			chain.push({
-				kind: 'sickness',
-				label: kind === 'air' ? 'Lung sickness risk' : 'Waterborne illness risk'
-			});
-
-		alerts.push({
-			id: alertId,
-			kind,
-			severity,
-			floor: floor.index,
-			title: (kind === 'air' ? AIR_TITLE : WATER_TITLE)[severity],
-			where: `${p.label} · ${level.code} ${level.name}`,
-			detail: `${worst.label} ${worst.text}`,
-			residents: impact.active ? impact.affectedTotal : impact.dependentTotal,
-			dependents: impact.dependentTotal,
-			blocks: ids,
-			...placeCentre(p),
-			chain,
-			place: p
-		});
 	}
 
 	alerts.sort((a, b) => rank(b.severity) - rank(a.severity) || b.residents - a.residents);
-	return { alerts, blocks, sources, owner, sourceOwner };
-});
+	return { alerts, resolved, blocks, sources };
+}
 
 export interface AlertTotals {
 	count: number;
