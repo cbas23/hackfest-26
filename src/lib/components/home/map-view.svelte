@@ -12,7 +12,6 @@
 	import {
 		ALERT_INFO,
 		ALERT_KINDS,
-		alertsOn,
 		alertTotals,
 		type AlertKind,
 		type HollowAlert
@@ -20,6 +19,11 @@
 	import { Tween } from 'svelte/motion';
 	import { cubicOut } from 'svelte/easing';
 	import AlertIcon from './alert-icon.svelte';
+	import { bestAction, floorState } from '#lib/hollow/response.js';
+	import { dispatch, resetResponse, response } from './response-state.svelte.js';
+	import WrenchIcon from '@lucide/svelte/icons/wrench';
+	import CircleCheckIcon from '@lucide/svelte/icons/circle-check';
+	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
 	import SirenIcon from '@lucide/svelte/icons/siren';
 	import SicknessScale from './sickness-scale.svelte';
 	import { home, lensFor, registerMapNav } from './home-state.svelte.js';
@@ -183,7 +187,8 @@
 	function focus(level: number, x: number, y: number) {
 		goTo(level);
 		select(null);
-		scene?.flyTo(x, y, { distance: Math.min(distance, 90) });
+		// Close enough to read the blocks, far enough to see the area around them.
+		scene?.flyTo(x, y, { distance: Math.min(Math.max(distance, 120), 170) });
 	}
 
 	function onPick(pick: Pick | null) {
@@ -226,9 +231,10 @@
 				};
 			});
 		}
-		const floorAlerts = alertMode ? alertsOn(floor) : null;
+		void response.version;
+		const floorAlerts = alertMode ? floorState(floor) : null;
 		const alertPins: PinSpec[] = floorAlerts
-			? floorAlerts.alerts
+			? floorAlerts.active
 					.filter((a) => !home.alertFilter || a.kind === home.alertFilter)
 					.map((a) => ({
 						key: `alert-${a.id}`,
@@ -306,7 +312,31 @@
 	const alertList = $derived.by(() => {
 		if (!alertMode) return null;
 		const floors = overview ? LEVELS.map((l) => hollow.floor(l.index)) : [floor];
-		return floors.flatMap((f) => alertsOn(f).alerts);
+		void response.version;
+		return floors.flatMap((f) => floorState(f).active);
+	});
+	/** Fixes so far across the shown levels, and the next best one. */
+	const fixedCount = $derived.by(() => {
+		if (!alertMode) return 0;
+		void response.version;
+		const floors = overview ? LEVELS.map((l) => hollow.floor(l.index)) : [floor];
+		return floors.reduce((n, f) => {
+			const st = floorState(f);
+			return n + st.fixed.length + st.cleared.length;
+		}, 0);
+	});
+	const next = $derived.by(() => {
+		if (!alertMode) return null;
+		void response.version;
+		return bestAction(overview ? LEVELS.map((l) => hollow.floor(l.index)) : [floor]);
+	});
+	/** The outcome banner shows for a few seconds after each fix. */
+	let banner = $state(false);
+	$effect(() => {
+		if (!response.last) return;
+		banner = true;
+		const t = setTimeout(() => (banner = false), 4500);
+		return () => clearTimeout(t);
 	});
 	/** Totals over every kind (the tiles), and over the filtered kind (headline, bar). */
 	const allTotals = $derived(alertList ? alertTotals(alertList) : null);
@@ -343,7 +373,8 @@
 			return;
 		}
 		const rooms: { room: Room; color: string }[] = [];
-		for (const a of alertsOn(floor).alerts) {
+		void response.version;
+		for (const a of floorState(floor).active) {
 			if (a.severity !== 'critical' || (home.alertFilter && a.kind !== home.alertFilter)) continue;
 			const color =
 				a.kind === 'blackout' ? STATUS_INFO.critical.color : STATUS_INFO[a.severity].color;
@@ -434,7 +465,13 @@
 			}
 		});
 		scene = s;
-		registerMapNav({ goTo, setOverview, focus });
+		registerMapNav({
+			goTo,
+			setOverview,
+			focus,
+			crew: (at) => s.setRadar(at ? { ...at, radius: 14, color: STATUS_INFO.normal.color } : null),
+			refresh: () => s.refreshLens()
+		});
 		s.showFloor(hollow.floor(0), 0);
 		s.fitBounds(...cityBounds(hollow.floor(0)));
 		// Open on the all-levels stack.
@@ -507,6 +544,7 @@
 					</Button>
 				{:else if p.alert}
 					{@const a = p.alert}
+					{@const busy = response.working === a.id}
 					<button
 						class="pointer-events-auto absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center"
 						onclick={() => focus(a.floor, a.x, a.y)}
@@ -531,10 +569,14 @@
 								></span>
 							{/if}
 							<span
-								class="relative grid size-7 place-items-center rounded-full border-2 border-background text-white shadow-lg"
-								style="background:{p.color};box-shadow:0 0 14px {p.color}"
+								class="relative grid size-7 place-items-center rounded-full border-2 border-background text-white shadow-lg transition-colors"
+								style="background:{busy
+									? STATUS_INFO.normal.color
+									: p.color};box-shadow:0 0 14px {busy ? STATUS_INFO.normal.color : p.color}"
 							>
-								<AlertIcon kind={a.kind} />
+								{#if busy}<WrenchIcon class="size-3.5 animate-spin" />{:else}<AlertIcon
+										kind={a.kind}
+									/>{/if}
 							</span>
 						</span>
 						{#if showNames}
@@ -663,10 +705,81 @@
 					</button>
 				{/each}
 			</div>
-			<p class="text-[10px] text-muted-foreground">
-				Residents affected · tap a tile to filter · simulated
-			</p>
+			{#if next}
+				<!-- The one thing to do now: the fix that helps the most residents. -->
+				<div
+					class="flex flex-col gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 p-2"
+				>
+					<span
+						class="text-[10px] font-semibold tracking-wide text-emerald-600 uppercase dark:text-emerald-400"
+						>Fix first</span
+					>
+					<span class="flex items-center gap-1.5 text-foreground">
+						<span style="color:{ALERT_INFO[next.alert.kind].color}"
+							><AlertIcon kind={next.alert.kind} class="size-3.5" /></span
+						>
+						<span class="truncate font-medium">{next.verb}</span>
+						<span class="truncate text-muted-foreground">· {next.alert.where.split(' · ')[0]}</span>
+					</span>
+					<span class="text-muted-foreground">
+						Helps <span class="font-semibold text-foreground tabular-nums"
+							>{compact.format(next.residents)}</span
+						>
+						{#if next.clears.length > 1}
+							· clears <span class="font-semibold text-foreground">{next.clears.length}</span> alerts
+						{/if}
+					</span>
+					<Button
+						size="sm"
+						class="h-7 bg-emerald-600 text-white hover:bg-emerald-500"
+						disabled={!!response.working}
+						onclick={() => dispatch(next)}
+					>
+						{#if response.working}<WrenchIcon class="animate-spin" /> Crew working…{:else}<WrenchIcon
+							/> Dispatch crew{/if}
+					</Button>
+				</div>
+			{:else}
+				<div
+					class="flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 p-2 text-emerald-600 dark:text-emerald-400"
+				>
+					<CircleCheckIcon class="size-4" /> All clear here
+				</div>
+			{/if}
+			<div class="flex items-center justify-between text-[10px] text-muted-foreground">
+				<span>Tap a tile to filter · simulated</span>
+				{#if fixedCount}
+					<button
+						type="button"
+						class="flex items-center gap-1 hover:text-foreground"
+						onclick={resetResponse}
+						><RotateCcwIcon class="size-3" /> Reset {fixedCount} fixed</button
+					>
+				{/if}
+			</div>
 		</div>
+	{/if}
+
+	{#if alertMode && banner && response.last}
+		{#key response.last.id}
+			<div
+				class="alert-in pointer-events-none absolute top-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-3 rounded-full border border-emerald-500/50 bg-background/95 py-2 pr-4 pl-2 text-sm shadow-[0_0_30px_-6px_#10b981] backdrop-blur"
+				role="status"
+			>
+				<span class="grid size-7 place-items-center rounded-full bg-emerald-500 text-white">
+					<CircleCheckIcon class="size-4" />
+				</span>
+				<span>
+					<span class="font-semibold">{response.last.verb}</span>
+					<span class="text-muted-foreground">· {response.last.where}</span>
+				</span>
+				<span class="text-emerald-600 tabular-nums dark:text-emerald-400">
+					{response.last.count} alert{response.last.count === 1 ? '' : 's'} cleared · {compact.format(
+						response.last.residents
+					)} helped
+				</span>
+			</div>
+		{/key}
 	{/if}
 
 	{#if sickTotals}

@@ -128,6 +128,8 @@ export interface HollowMap {
 	preload(floor: Floor): void;
 	/** Repaint every level with a data lens (e.g. sickness), or back to the normal look. */
 	setLens(lens: MapLens | null): void;
+	/** Repaint with the current lens after the data behind it changed (e.g. an alert was fixed). */
+	refreshLens(): void;
 	/** Tint rooms on the shown floor (impact assessment); an empty list clears it. */
 	setImpact(rooms: { room: Room; color: string }[]): void;
 	/** Rooms on the current level that throb in their colour (alerts); [] clears. */
@@ -266,7 +268,9 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 	const tunnelTint = () => (!lens && lastRoute ? tokenHex('map-route-dim') : null);
 	/** Bumped on every theme change, so each layer knows its colours are stale. */
 	let themeVersion = 0;
-	const styleKey = () => `${lens}@${themeVersion}`;
+	/** Bumped when the lens's data changes, so layers repaint with the same lens. */
+	let dataVersion = 0;
+	const styleKey = () => `${lens}@${themeVersion}.${dataVersion}`;
 	/** The lens and theme each layer was last styled with. */
 	const styledWith = new Map<number, string>();
 	/** Restyle a layer if the lens or theme changed since it was built. */
@@ -796,6 +800,10 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 					layer: layerId(p.level ?? current?.index ?? 0)
 				})
 			);
+		},
+		refreshLens() {
+			dataVersion++;
+			restyleAll();
 		},
 		setLens(next) {
 			if (next === lens) return;

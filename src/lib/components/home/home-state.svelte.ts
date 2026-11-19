@@ -28,6 +28,10 @@ interface MapNav {
 	setOverview(on: boolean): void;
 	/** Go to a level and fly the camera to a tile point on it. */
 	focus(level: number, x: number, y: number): void;
+	/** Show (or clear) a repair crew working at a tile point. */
+	crew(at: { level: number; x: number; y: number } | null): void;
+	/** Repaint the map after the data behind the lens changed. */
+	refresh(): void;
 }
 
 let nav: MapNav | null = null;
@@ -38,5 +42,7 @@ export const registerMapNav = (n: MapNav | null) => {
 export const mapNav: MapNav = {
 	goTo: (index) => nav?.goTo(index),
 	setOverview: (on) => nav?.setOverview(on),
-	focus: (level, x, y) => nav?.focus(level, x, y)
+	focus: (level, x, y) => nav?.focus(level, x, y),
+	crew: (at) => nav?.crew(at),
+	refresh: () => nav?.refresh()
 };

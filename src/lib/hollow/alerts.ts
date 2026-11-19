@@ -38,6 +38,8 @@ export interface HollowAlert {
 	detail: string;
 	/** Residents affected (in the dark, breathing bad air, or on unsafe water). */
 	residents: number;
+	/** Residents who depend on the facility (air and water), for the power-starved test. */
+	dependents: number;
 	/** Housing block (room) ids covered by the alert. */
 	blocks: number[];
 	/** Tile point to pin and fly to. */
@@ -58,6 +60,10 @@ export interface FloorAlerts {
 	blocks: Map<number, BlockAlert>;
 	/** Facilities currently alerting (room id → kind), drawn bright under the lens. */
 	sources: Map<number, AlertKind>;
+	/** Room id → the alert id that paints it, per kind (each block has at most one per kind). */
+	owner: Map<number, Partial<Record<AlertKind, string>>>;
+	/** Facility room id → its alert id. */
+	sourceOwner: Map<number, string>;
 }
 
 const rank = (s: Status) => STATUS_INFO[s].rank;
@@ -70,7 +76,7 @@ function blackoutSeverity(darkShare: number): Status {
 }
 
 /** A service area counts as power-starved when this share of its residents is in the dark. */
-const STARVED = 0.3;
+export const STARVED = 0.3;
 
 /** What a failing reading means, in plain words. */
 const READING_CAUSE: Record<string, string> = {
@@ -118,10 +124,15 @@ export function alertsOn(floor: Floor): FloorAlerts {
 	if (hit) return hit;
 	const level = LEVELS[floor.index];
 	const blocks = new Map<number, BlockAlert>();
-	const mark = (id: number, kind: AlertKind, s: Status) => {
+	const owner = new Map<number, Partial<Record<AlertKind, string>>>();
+	const sourceOwner = new Map<number, string>();
+	const mark = (id: number, kind: AlertKind, s: Status, alertId: string) => {
 		const b = blocks.get(id) ?? {};
 		b[kind] = worse(b[kind], s);
 		blocks.set(id, b);
+		const o = owner.get(id) ?? {};
+		o[kind] = alertId;
+		owner.set(id, o);
 	};
 	const alerts: HollowAlert[] = [];
 
@@ -138,7 +149,7 @@ export function alertsOn(floor: Floor): FloorAlerts {
 	for (const [id, g] of dark) {
 		const residents = g.ids.reduce((s, b) => s + floor.residents[b], 0);
 		const severity = blackoutSeverity(residents / Math.max(1, g.population));
-		for (const b of g.ids) mark(b, 'blackout', severity);
+		for (const b of g.ids) mark(b, 'blackout', severity, `blackout:${id}`);
 		alerts.push({
 			id: `blackout:${id}`,
 			kind: 'blackout',
@@ -148,6 +159,7 @@ export function alertsOn(floor: Floor): FloorAlerts {
 			where: `${g.name} · ${level.code} ${level.name}`,
 			detail: `${g.ids.length} block${g.ids.length === 1 ? '' : 's'} without power`,
 			residents,
+			dependents: residents,
 			blocks: g.ids,
 			chain: [],
 			...anchor(floor, g.ids)
@@ -165,9 +177,11 @@ export function alertsOn(floor: Floor): FloorAlerts {
 		if (!impact) continue;
 		const ids = impact.neighborhoods.flatMap((n) => n.blocks);
 		const severity = sensors.status;
+		const alertId = `${kind}:${p.key}`;
 		sources.set(p.room.id, kind);
+		sourceOwner.set(p.room.id, alertId);
 		for (const n of impact.neighborhoods)
-			for (const b of n.blocks) mark(b, kind, impact.active ? n.severity : 'warning');
+			for (const b of n.blocks) mark(b, kind, impact.active ? n.severity : 'warning', alertId);
 
 		const darkResidents = ids.reduce((s, b) => s + (floor.lit[b] ? 0 : floor.residents[b]), 0);
 		const starved = darkResidents / Math.max(1, impact.dependentTotal) >= STARVED;
@@ -186,7 +200,7 @@ export function alertsOn(floor: Floor): FloorAlerts {
 			});
 
 		alerts.push({
-			id: `${kind}:${p.key}`,
+			id: alertId,
 			kind,
 			severity,
 			floor: floor.index,
@@ -194,6 +208,7 @@ export function alertsOn(floor: Floor): FloorAlerts {
 			where: `${p.label} · ${level.code} ${level.name}`,
 			detail: `${worst.label} ${worst.text}`,
 			residents: impact.active ? impact.affectedTotal : impact.dependentTotal,
+			dependents: impact.dependentTotal,
 			blocks: ids,
 			x: p.room.x + p.room.w / 2,
 			y: p.room.y + p.room.h / 2,
@@ -203,7 +218,7 @@ export function alertsOn(floor: Floor): FloorAlerts {
 	}
 
 	alerts.sort((a, b) => rank(b.severity) - rank(a.severity) || b.residents - a.residents);
-	const result = { alerts, blocks, sources };
+	const result = { alerts, blocks, sources, owner, sourceOwner };
 	cache.set(floor.index, result);
 	return result;
 }

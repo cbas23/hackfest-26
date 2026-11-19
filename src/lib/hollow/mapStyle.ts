@@ -5,7 +5,8 @@ import { FACILITY_INFO, LEVELS, SHAFTS, SHAFT_COLORS, type FacilityKind } from '
 import type { Floor } from './world.js';
 import { SICK_STEPS, sickStep, sicknessOf } from './sickness.js';
 import { token, type Token } from './theme.js';
-import { alertsOn, type AlertKind } from './alerts.js';
+import type { AlertKind } from './alerts.js';
+import { floorState } from './response.js';
 import type { Status } from './sensors.js';
 
 /** A data view painted over the map instead of its normal palette. */
@@ -163,7 +164,7 @@ export function floorStyle(floor: Floor, lens: MapLens | null = null): LayerStyl
 	const sickness = lens === 'sickness' ? sicknessOf(floor) : null;
 	const steps = SICK_STEPS.map((_, i) => token(`map-sick-${(i + 1) as 1 | 2 | 3 | 4 | 5}`));
 	const muted = { wall: token('map-muted-wall'), roof: token('map-muted-roof') };
-	const alerts = lens?.startsWith('alerts') ? alertsOn(floor) : null;
+	const alerts = lens?.startsWith('alerts') ? floorState(floor) : null;
 	/** 'alerts' shows every kind; 'alerts-water' etc. only that one. */
 	const only = lens?.startsWith('alerts-') ? (lens.slice(7) as AlertKind) : null;
 	const show = (k: AlertKind) => !only || only === k;
