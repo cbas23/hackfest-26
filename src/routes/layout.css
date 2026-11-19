@@ -142,6 +142,13 @@
 	--map-sick-4: var(--primary);
 	--map-sick-5: color-mix(in oklch, var(--primary) 55%, var(--chart-2));
 	/* Routes, hover/selection outlines and the radar sweep. */
+	/* Alerts lens: blackouts sink to near-black with a red edge; bad air glows teal → red. */
+	--map-alert-dark-roof: color-mix(in oklch, var(--destructive) 12%, black);
+	--map-alert-dark-wall: color-mix(in oklch, var(--destructive) 70%, black);
+	--map-alert-air-1: color-mix(in oklch, oklch(0.78 0.13 200) 70%, var(--border));
+	--map-alert-air-2: oklch(0.75 0.17 60);
+	--map-alert-air-3: var(--destructive);
+
 	--map-route: var(--primary);
 	--map-route-border: var(--foreground);
 	--map-route-dim: color-mix(in oklch, var(--muted-foreground) 80%, var(--background));
@@ -216,5 +223,82 @@
 	}
 	html {
 		@apply font-sans;
+	}
+}
+
+/* ── Alerts ─────────────────────────────────────────────────────────────── */
+@keyframes alert-in {
+	from {
+		opacity: 0;
+		transform: translateX(-10px);
+	}
+}
+@keyframes alert-sweep {
+	from {
+		transform: translateX(-100%);
+	}
+	to {
+		transform: translateX(250%);
+	}
+}
+@keyframes alert-vignette {
+	0%,
+	100% {
+		opacity: 0.25;
+	}
+	12% {
+		opacity: 1;
+	}
+}
+@keyframes alert-ring {
+	from {
+		transform: scale(0.6);
+		opacity: 0.9;
+	}
+	to {
+		transform: scale(2.4);
+		opacity: 0;
+	}
+}
+@keyframes alert-blink {
+	50% {
+		opacity: 0.25;
+	}
+}
+.alert-in {
+	animation: alert-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+/* A light sweep across critical alerts. */
+.alert-critical::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	width: 40%;
+	background: linear-gradient(
+		90deg,
+		transparent,
+		color-mix(in oklab, var(--sev) 22%, transparent),
+		transparent
+	);
+	animation: alert-sweep 2.4s ease-in-out infinite;
+	pointer-events: none;
+}
+.alert-vignette {
+	box-shadow: inset 0 0 120px 10px color-mix(in oklab, var(--destructive) 45%, transparent);
+	animation: alert-vignette 1.4s ease-out infinite;
+}
+.alert-ring {
+	animation: alert-ring 1.4s ease-out infinite;
+}
+.alert-blink {
+	animation: alert-blink 1s steps(2, start) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+	.alert-in,
+	.alert-critical::after,
+	.alert-vignette,
+	.alert-ring,
+	.alert-blink {
+		animation: none;
 	}
 }

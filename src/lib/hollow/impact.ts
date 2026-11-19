@@ -177,3 +177,15 @@ export function assessImpact(floor: Floor, facility: Place): ImpactAssessment | 
 		affectedTotal: neighborhoods.reduce((s, n) => s + n.affected, 0)
 	};
 }
+
+/** The neighborhood (3×3 district) a housing block belongs to, or null if nobody lives there. */
+export function neighborhoodOf(floor: Floor, roomId: number) {
+	const idx = indexFloor(floor);
+	const s = idx.sector.get(roomId);
+	if (s === undefined) return null;
+	return {
+		id: `${floor.index}:${s}`,
+		name: SECTORS[Math.floor(s / 3)][s % 3],
+		population: idx.sectorPopulation[s]
+	};
+}

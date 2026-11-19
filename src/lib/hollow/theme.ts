@@ -31,6 +31,9 @@ export type Token =
 	| 'map-muted-roof'
 	| 'map-lens-tunnel'
 	| `map-sick-${1 | 2 | 3 | 4 | 5}`
+	| 'map-alert-dark-roof'
+	| 'map-alert-dark-wall'
+	| `map-alert-air-${1 | 2 | 3}`
 	| 'map-route'
 	| 'map-route-border'
 	| 'map-route-dim'

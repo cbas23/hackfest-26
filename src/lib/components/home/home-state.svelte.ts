@@ -12,12 +12,15 @@ export const home = $state({
 
 /** Sidebar sections that repaint the map while they are open. */
 export const SECTION_LENS: Record<string, MapLens> = {
-	sickness: 'sickness'
+	sickness: 'sickness',
+	alerts: 'alerts'
 };
 
 interface MapNav {
 	goTo(index: number): void;
 	setOverview(on: boolean): void;
+	/** Go to a level and fly the camera to a tile point on it. */
+	focus(level: number, x: number, y: number): void;
 }
 
 let nav: MapNav | null = null;
@@ -27,5 +30,6 @@ export const registerMapNav = (n: MapNav | null) => {
 };
 export const mapNav: MapNav = {
 	goTo: (index) => nav?.goTo(index),
-	setOverview: (on) => nav?.setOverview(on)
+	setOverview: (on) => nav?.setOverview(on),
+	focus: (level, x, y) => nav?.focus(level, x, y)
 };

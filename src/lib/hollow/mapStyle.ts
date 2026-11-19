@@ -5,9 +5,11 @@ import { FACILITY_INFO, LEVELS, SHAFTS, SHAFT_COLORS, type FacilityKind } from '
 import type { Floor } from './world.js';
 import { SICK_STEPS, sickStep, sicknessOf } from './sickness.js';
 import { token, type Token } from './theme.js';
+import { alertsOn } from './alerts.js';
+import type { Status } from './sensors.js';
 
 /** A data view painted over the map instead of its normal palette. */
-export type MapLens = 'sickness';
+export type MapLens = 'sickness' | 'alerts';
 
 /** Tunnels under a data lens: a flat, very dark trace just above the floor. */
 const lensTunnel = () => {
@@ -161,6 +163,15 @@ export function floorStyle(floor: Floor, lens: MapLens | null = null): LayerStyl
 	const sickness = lens === 'sickness' ? sicknessOf(floor) : null;
 	const steps = SICK_STEPS.map((_, i) => token(`map-sick-${(i + 1) as 1 | 2 | 3 | 4 | 5}`));
 	const muted = { wall: token('map-muted-wall'), roof: token('map-muted-roof') };
+	const alerts = lens === 'alerts' ? alertsOn(floor) : null;
+	const air: Record<Status, THREE.Color> = {
+		normal: muted.roof,
+		warning: token('map-alert-air-1'),
+		high: token('map-alert-air-2'),
+		critical: token('map-alert-air-3')
+	};
+	const darkRoof = token('map-alert-dark-roof');
+	const darkWall = token('map-alert-dark-wall');
 	return {
 		seed: floor.index * 1_000_003,
 		// A data lens is read off the rooms alone: they go fully opaque with flat colours (no
@@ -180,6 +191,24 @@ export function floorStyle(floor: Floor, lens: MapLens | null = null): LayerStyl
 				if (!s) return { ...base, ...muted };
 				const roof = steps[sickStep(s.score)];
 				return { ...base, roof, wall: roof.clone().multiplyScalar(0.72) };
+			}
+			if (alerts && r.kind !== 'gate') {
+				// Alerts lens: blackouts sink to near-black with red walls, air alerts glow by
+				// severity, failing vents stay bright; everything else recedes.
+				const a = alerts.blocks.get(r.id);
+				if (a?.blackout) return { ...base, roof: darkRoof, wall: a.air ? air[a.air] : darkWall };
+				if (a?.air)
+					return { ...base, roof: air[a.air], wall: air[a.air].clone().multiplyScalar(0.7) };
+				if (alerts.sources.has(r.id)) {
+					const accent = new THREE.Color(FACILITY_INFO.air.color);
+					return {
+						...base,
+						roof: accent,
+						wall: accent.clone().multiplyScalar(0.6),
+						height: height + 1
+					};
+				}
+				return { ...base, ...muted };
 			}
 			if (facility) {
 				const accent = new THREE.Color(FACILITY_INFO[facility.kind].color);

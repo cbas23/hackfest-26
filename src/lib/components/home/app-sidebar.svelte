@@ -6,6 +6,9 @@
 	import { cn } from '#lib/utils.js';
 	import LayersIcon from '@lucide/svelte/icons/layers';
 	import WindIcon from '@lucide/svelte/icons/wind';
+	import SirenIcon from '@lucide/svelte/icons/siren';
+	import { STATUS_INFO } from '#lib/hollow/sensors.js';
+	import AlertList from './alert-list.svelte';
 	import SicknessScale from './sickness-scale.svelte';
 	import { home, mapNav } from './home-state.svelte.js';
 
@@ -15,6 +18,13 @@
 
 	/** Data layers that repaint the map while their card is open (see SECTION_LENS). */
 	const LAYERS = [
+		{
+			id: 'alerts',
+			title: 'Blackout & air alerts',
+			summary: 'Power cuts and failing vents',
+			icon: SirenIcon,
+			color: STATUS_INFO.critical.color
+		},
 		{
 			id: 'sickness',
 			title: 'Lung sickness',
@@ -96,7 +106,7 @@
 									style="color:{layer.color};border-color:{layer.color};background:color-mix(in oklab, {layer.color} 18%, var(--card))"
 									aria-hidden="true"
 								>
-									<layer.icon class="size-4" />
+									<layer.icon class={cn('size-4', layer.id === 'alerts' && 'alert-blink')} />
 								</span>
 								<span class="flex min-w-0 flex-col">
 									<span class="truncate">{layer.title}</span>
@@ -109,7 +119,9 @@
 						<Accordion.Content
 							class="flex flex-col gap-3 border-t px-3 pt-3 pb-3 text-muted-foreground [&_p:not(:last-child)]:mb-0"
 						>
-							{#if layer.id === 'sickness'}
+							{#if layer.id === 'alerts'}
+								<AlertList />
+							{:else if layer.id === 'sickness'}
 								<p>
 									Each block is coloured by the share of its reported residents who are sick.
 									Outbreaks start on the upper levels and spread down.

@@ -130,6 +130,8 @@ export interface HollowMap {
 	setLens(lens: MapLens | null): void;
 	/** Tint rooms on the shown floor (impact assessment); an empty list clears it. */
 	setImpact(rooms: { room: Room; color: string }[]): void;
+	/** Rooms on the current level that throb in their colour (alerts); [] clears. */
+	setAlertPulse(rooms: { room: Room; color: string }[]): void;
 	/** Tint every building on whole levels (shown in the stacked view too), e.g. a risk heat map. */
 	setLevelTints(tints: { level: number; color: string; opacity?: number }[]): void;
 	/** A radar lying flat on a level: disc, range rings, a rotating sweep and a ping. Null clears it. */
@@ -522,6 +524,8 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 	const hover = outline(0.55);
 	const selection = outline(1);
 	let impact: OverlayHandle | null = null;
+	let alertPulse: OverlayHandle | null = null;
+	let alertMats: THREE.Material[] = [];
 	let levelTints: OverlayHandle[] = [];
 	let radar: OverlayHandle | null = null;
 	let lastRadar: Parameters<HollowMap['setRadar']>[0] = null;
@@ -555,6 +559,13 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 		hover.sync();
 		selection.sync();
 		impact?.setVisible(!overview);
+		if (alertPulse) {
+			alertPulse.setVisible(!overview && !transition);
+			// A slow alarm throb: sharp rise, long fall.
+			const k = (now % 1400) / 1400;
+			const o = 0.15 + 0.6 * Math.pow(1 - k, 2.2);
+			for (const m of alertMats) m.opacity = o;
+		}
 	});
 
 	const self: HollowMap = {
@@ -816,6 +827,32 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 				opacity: 0.7,
 				visible: !overview
 			});
+		},
+		setAlertPulse(rooms) {
+			alertPulse?.remove();
+			alertPulse = null;
+			alertMats = [];
+			const layer = current && map.layer(layerId(current.index));
+			if (!rooms.length || !layer) return;
+			alertPulse = map.addOverlay({
+				type: 'rects',
+				layer: layer.id,
+				rects: rooms.map(({ room: r, color }) => ({
+					x: r.x - 0.15,
+					y: r.y - 0.15,
+					w: r.w + 0.3,
+					h: r.h + 0.3,
+					z: layer.heightOf(r) + 0.08,
+					color
+				})),
+				opacity: 0.6,
+				visible: !overview
+			});
+			alertPulse.object.traverse((o) => {
+				const m = (o as THREE.Mesh).material;
+				if (m) alertMats.push(...(Array.isArray(m) ? m : [m]));
+			});
+			for (const m of alertMats) m.transparent = true;
 		},
 		setLevelTints(tints) {
 			for (const t of levelTints) t.remove();
