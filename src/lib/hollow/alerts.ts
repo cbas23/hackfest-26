@@ -1,8 +1,8 @@
 import { LEVELS } from './data.js';
 import { assessImpact, neighborhoodOf } from './impact.js';
-import { placesOn, type Place } from './nav.js';
+import { placeCentre, placesOn, type Place } from './nav.js';
 import { facilityStatus, STATUS_INFO, type Reading, type Status } from './sensors.js';
-import type { Floor } from './world.js';
+import { perFloor, type Floor } from './world.js';
 
 /**
  * Blackout, air and water alerts (simulated). All three come from the seeded world:
@@ -116,12 +116,8 @@ function anchor(floor: Floor, ids: number[]) {
 const worstReading = (readings: Reading[]) =>
 	readings.reduce((a, b) => (rank(b.status) > rank(a.status) ? b : a));
 
-const cache = new Map<number, FloorAlerts>();
-
 /** Every blackout, air and water alert on one floor, worst first. */
-export function alertsOn(floor: Floor): FloorAlerts {
-	const hit = cache.get(floor.index);
-	if (hit) return hit;
+export const alertsOn = perFloor((floor: Floor): FloorAlerts => {
 	const level = LEVELS[floor.index];
 	const blocks = new Map<number, BlockAlert>();
 	const owner = new Map<number, Partial<Record<AlertKind, string>>>();
@@ -171,7 +167,7 @@ export function alertsOn(floor: Floor): FloorAlerts {
 	for (const p of placesOn(floor)) {
 		if (p.kind !== 'air' && p.kind !== 'water') continue;
 		const kind: AlertKind = p.kind;
-		const sensors = facilityStatus(p);
+		const sensors = facilityStatus(floor, p);
 		if (!sensors || sensors.status === 'normal') continue;
 		const impact = assessImpact(floor, p);
 		if (!impact) continue;
@@ -210,18 +206,15 @@ export function alertsOn(floor: Floor): FloorAlerts {
 			residents: impact.active ? impact.affectedTotal : impact.dependentTotal,
 			dependents: impact.dependentTotal,
 			blocks: ids,
-			x: p.room.x + p.room.w / 2,
-			y: p.room.y + p.room.h / 2,
+			...placeCentre(p),
 			chain,
 			place: p
 		});
 	}
 
 	alerts.sort((a, b) => rank(b.severity) - rank(a.severity) || b.residents - a.residents);
-	const result = { alerts, blocks, sources, owner, sourceOwner };
-	cache.set(floor.index, result);
-	return result;
-}
+	return { alerts, blocks, sources, owner, sourceOwner };
+});
 
 export interface AlertTotals {
 	count: number;

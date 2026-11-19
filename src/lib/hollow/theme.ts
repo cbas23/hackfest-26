@@ -4,7 +4,8 @@
  * which are themselves mixed from the shadcn tokens; tweak them in CSS, not here.
  *
  * Values are resolved by the browser (so `oklch()`, `color-mix()` and nested `var()` all
- * work) and cached until the theme changes. Browser only.
+ * work) and cached until the theme changes. `cssHex` / `cssColor` do the same for any CSS
+ * colour, e.g. the domain colours in `data.ts` (`var(--shaft-open)`). Browser only.
  */
 import * as THREE from 'three';
 
@@ -42,12 +43,12 @@ export type Token =
 	| 'map-light-sky'
 	| 'map-light-ground';
 
-const cache = new Map<Token, string>();
+const cache = new Map<string, string>();
 let probe: HTMLElement | null = null;
 let paint: CanvasRenderingContext2D | null = null;
 
-/** Resolve a CSS variable to `#rrggbb`: let CSS compute it, then paint it to read sRGB back. */
-function resolve(name: Token): string {
+/** Resolve a CSS colour to `#rrggbb`: let CSS compute it, then paint it to read sRGB back. */
+function resolve(css: string): string {
 	if (!probe) {
 		probe = document.createElement('span');
 		probe.style.display = 'none';
@@ -56,32 +57,35 @@ function resolve(name: Token): string {
 	// Re-attach each time: the body may have been replaced since the last read.
 	if (!probe.isConnected) document.body.appendChild(probe);
 	probe.style.color = '';
-	probe.style.color = `var(--${name}, #000)`;
-	const css = getComputedStyle(probe).color;
+	probe.style.color = css;
+	const computed = getComputedStyle(probe).color;
 	paint ??= Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext(
 		'2d',
 		{ willReadFrequently: true }
 	)!;
 	paint.clearRect(0, 0, 1, 1);
 	paint.fillStyle = '#000';
-	paint.fillStyle = css;
+	paint.fillStyle = computed;
 	paint.fillRect(0, 0, 1, 1);
 	const [r, g, b] = paint.getImageData(0, 0, 1, 1).data;
 	return `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
 }
 
-/** A theme variable as `#rrggbb`. */
-export function tokenHex(name: Token): string {
-	let hex = cache.get(name);
-	if (!hex) cache.set(name, (hex = resolve(name)));
+/** Any CSS colour (`#hex`, `oklch()`, `var(--x)`…) as `#rrggbb`, in the current theme. */
+export function cssHex(css: string): string {
+	let hex = cache.get(css);
+	if (!hex) cache.set(css, (hex = resolve(css)));
 	return hex;
 }
 
+/** Any CSS colour as a fresh three.js colour (safe to mutate). */
+export const cssColor = (css: string) => new THREE.Color(cssHex(css));
+
+/** A theme variable as `#rrggbb`. */
+export const tokenHex = (name: Token) => cssHex(`var(--${name}, #000)`);
+
 /** A theme variable as a fresh three.js colour (safe to mutate). */
 export const token = (name: Token) => new THREE.Color(tokenHex(name));
-
-/** Two theme variables blended: `t` = 0 is `a`, 1 is `b`. */
-export const blend = (a: Token, b: Token, t: number) => token(a).lerp(token(b), t);
 
 const listeners = new Set<() => void>();
 let observer: MutationObserver | null = null;

@@ -2,39 +2,70 @@
 	import * as Accordion from '#lib/components/ui/accordion/index.js';
 	import { ScrollArea } from '#lib/components/ui/scroll-area/index.js';
 	import { LEVELS } from '#lib/hollow/data.js';
+	import { formatDepth } from '#lib/hollow/format.js';
 	import { SICK_STEPS } from '#lib/hollow/sickness.js';
 	import { cn } from '#lib/utils.js';
+	import type { Component, Snippet } from 'svelte';
 	import LayersIcon from '@lucide/svelte/icons/layers';
 	import WindIcon from '@lucide/svelte/icons/wind';
 	import SirenIcon from '@lucide/svelte/icons/siren';
 	import { STATUS_INFO } from '#lib/hollow/sensors.js';
 	import AlertList from './alert-list.svelte';
 	import SicknessScale from './sickness-scale.svelte';
-	import { home, mapNav } from './home-state.svelte.js';
+	import { home, mapNav, type LayerId } from './home-state.svelte.js';
 
 	const choose = (v: number | 'all') => (v === 'all' ? mapNav.setOverview(true) : mapNav.goTo(v));
 	const isChosen = (v: number | 'all') =>
 		v === 'all' ? home.overview : !home.overview && home.level === v;
 
-	/** Data layers that repaint the map while their card is open (see SECTION_LENS). */
-	const LAYERS = [
+	interface Layer {
+		id: LayerId;
+		title: string;
+		summary: string;
+		icon: Component<{ class?: string }>;
+		/** The layer's key colour. */
+		color: string;
+		/** What the card shows when open. */
+		content: Snippet;
+	}
+
+	/** Data layers: cards that repaint the map while open (their lens is in SECTION_LENS). */
+	const LAYERS: Layer[] = [
 		{
 			id: 'alerts',
 			title: 'Power, air & water alerts',
 			summary: 'Blackouts, failing vents, unsafe water',
 			icon: SirenIcon,
-			color: STATUS_INFO.critical.color
+			color: STATUS_INFO.critical.color,
+			content: alertsInfo
 		},
 		{
 			id: 'sickness',
 			title: 'Lung sickness',
 			summary: 'Reported cases by block',
 			icon: WindIcon,
-			/** The layer's key colour: the top of the sickness scale. */
-			color: SICK_STEPS[SICK_STEPS.length - 1].color
+			// The top of the sickness scale.
+			color: SICK_STEPS[SICK_STEPS.length - 1].color,
+			content: sicknessInfo
 		}
 	];
 </script>
+
+{#snippet alertsInfo()}
+	<AlertList />
+{/snippet}
+
+{#snippet sicknessInfo()}
+	<p>
+		Each block is coloured by the share of its reported residents who are sick. Outbreaks start on
+		the upper levels and spread down.
+	</p>
+	<div class="flex flex-col gap-1.5 text-xs">
+		<span>Share of reported residents sick</span>
+		<SicknessScale />
+		<p class="text-[10px]">Simulated reports</p>
+	</div>
+{/snippet}
 
 {#snippet levelButton(v: number | 'all', code: string, name: string, meta: string)}
 	{@const on = isChosen(v)}
@@ -73,7 +104,7 @@
 			<ul class="flex flex-col gap-0.5">
 				{@render levelButton('all', '', 'All levels', `${LEVELS.length} levels`)}
 				{#each LEVELS as l (l.code)}
-					{@render levelButton(l.index, l.code, l.name, `−${l.depth.toLocaleString('en')} m`)}
+					{@render levelButton(l.index, l.code, l.name, formatDepth(l.depth))}
 				{/each}
 			</ul>
 		</section>
@@ -84,7 +115,7 @@
 			</h2>
 			<Accordion.Root
 				type="single"
-				bind:value={home.section}
+				bind:value={() => home.section, (v) => (home.section = v as LayerId | '')}
 				class="flex flex-col gap-2"
 				aria-labelledby="layers-heading"
 			>
@@ -119,19 +150,7 @@
 						<Accordion.Content
 							class="flex flex-col gap-3 border-t px-3 pt-3 pb-3 text-muted-foreground [&_p:not(:last-child)]:mb-0"
 						>
-							{#if layer.id === 'alerts'}
-								<AlertList />
-							{:else if layer.id === 'sickness'}
-								<p>
-									Each block is coloured by the share of its reported residents who are sick.
-									Outbreaks start on the upper levels and spread down.
-								</p>
-								<div class="flex flex-col gap-1.5 text-xs">
-									<span>Share of reported residents sick</span>
-									<SicknessScale />
-									<p class="text-[10px]">Simulated reports</p>
-								</div>
-							{/if}
+							{@render layer.content()}
 						</Accordion.Content>
 					</Accordion.Item>
 				{/each}

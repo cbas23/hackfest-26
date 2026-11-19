@@ -37,19 +37,36 @@ Layers, bottom to top:
    `mesh.worker.ts`). It must stay free of Hollow-specific concepts.
 3. `#lib/hollow/*`: the world and its domain logic.
    - `data.ts`: levels, facilities, shafts, `FLOOR_CONFIG`, `HOLLOW_SEED = 2087`
-   - `world.ts`: `createHollow(seed)` loads pre-baked `floors.json` (format in `bake.ts`)
-   - `nav.ts` (places, routes), `sensors.ts` (Detect), `impact.ts` (Assess), `sickness.ts`
-   - `mapStyle.ts` / `theme.ts`: palettes. Map colours come from the `--map-*` CSS variables in
-     `src/routes/layout.css`, so change them in CSS, not in TS.
+   - `world.ts`: `createHollow(seed)` loads pre-baked `floors.json` (format in `bake.ts`).
+     `perFloor(fn)` memoises per-floor derived data (use it instead of ad-hoc caches);
+     `floorBounds` / `builtBounds` give a floor's extent.
+   - `simulation.ts`: the entry point for simulated data. `getHollow()` is the one shared city
+     (don't call `createHollow` in pages), `simulateFloor(floor)` gives a floor's places,
+     sickness, sensor status and impact, and `snapshot()` dumps everything as plain data.
+     Seeds and tuning are in `simConfig.ts` (`SIM`, `streamSeed`): each simulation draws from
+     its own stream of the city seed. Sensor readings pinned to the lore go on the facility in
+     `data.ts` (`readings`). When a change should keep the data as it is, check that
+     `snapshot()` doesn't change.
+   - The models: `nav.ts` (places, `placeColor`, routes), `sensors.ts` (Detect), `impact.ts`
+     (Assess), `sickness.ts`; plus `format.ts` (number/depth formats for the UI)
+   - `mapStyle.ts` / `theme.ts`: palettes. All colours, including the shaft/facility/status
+     colours in `data.ts` and `sensors.ts`, are CSS variables in `src/routes/layout.css`
+     (`--map-*`, `--shaft-*`, `--facility-*`, `--status-*`), so change them in CSS, not in TS.
+     The 3D map resolves any CSS colour with `cssHex` / `cssColor`.
    - `hollowMap.ts`: `createHollowMap` wraps `#lib/map` with level changes, the stacked
-     all-levels view, routes, impact tint, outlines, pins and data lenses.
+     all-levels view, impact tint, outlines, pins and data lenses. Its parts live in `scene/`
+     (`transitions`, `stackPick`, `shaftColumns`, `outline`). Visuals only the scratch pages
+     use are add-ons that attach on first use: `routeOverlay`, `radarOverlay`,
+     `levelTintOverlay` (`scene/route.ts` etc., built on `hollowMap.hooks`).
+   - `#lib/random.ts`: the shared seeded PRNG and hashes. Changing it changes every city.
 4. Main Map UI, in `src/lib/components/home/`:
    - `app-sidebar.svelte` (levels + data-layer cards), `map-view.svelte` (3D map host and
-     controls), `place-card.svelte` (selection details), `sickness-scale.svelte`, `place-icon.svelte`
+     controls), `map-keys.ts` (keyboard control), `place-card.svelte` (selection details),
+     `sickness-scale.svelte`, `place-icon.svelte`
    - `home-state.svelte.ts`: shared rune state. `home` (level, overview, open section),
      `registerMapNav` / `mapNav` (the sidebar drives the map), `SECTION_LENS` (an open sidebar
-     card → map lens). New data layers: add a card to `LAYERS` in the sidebar and a lens to
-     `SECTION_LENS` / `mapStyle.ts`.
+     card → map lens). New data layers: add the id to `LayerId`, a card (with a `content`
+     snippet) to `LAYERS` in the sidebar, and a lens to `SECTION_LENS` / `mapStyle.ts`.
 5. App shell: `src/routes/+layout.svelte` (`SiteNav` + full-height content). The map routes use
    `ssr = false`.
 

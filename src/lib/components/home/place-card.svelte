@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { SHAFTS, SHAFT_COLORS } from '#lib/hollow/data.js';
 	import type { Place } from '#lib/hollow/nav.js';
-	import { facilityStatus, STATUS_INFO } from '#lib/hollow/sensors.js';
+	import { STATUS_INFO } from '#lib/hollow/sensors.js';
 	import type { ImpactAssessment } from '#lib/hollow/impact.js';
-	import type { Floor } from '#lib/hollow/world.js';
+	import type { FloorSimulation } from '#lib/hollow/simulation.js';
 	import type { BlockSickness } from '#lib/hollow/sickness.js';
+	import { formatCompact, formatCount, formatPercent } from '#lib/hollow/format.js';
 	import SicknessScale from './sickness-scale.svelte';
 	import { cn } from '#lib/utils.js';
 	import * as Card from '#lib/components/ui/card/index.js';
@@ -15,7 +16,7 @@
 
 	let {
 		place: p,
-		floor: pf,
+		sim,
 		color,
 		impact,
 		sickness = null,
@@ -23,7 +24,8 @@
 		class: className
 	}: {
 		place: Place;
-		floor: Floor;
+		/** The simulation of the place's floor. */
+		sim: FloorSimulation;
 		color: string;
 		impact: ImpactAssessment | null;
 		sickness?: BlockSickness | null;
@@ -31,13 +33,14 @@
 		class?: string;
 	} = $props();
 
-	const compact = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
-	const sensors = $derived(facilityStatus(p));
+	const sensors = $derived(sim.status(p));
+	const pf = $derived(sim.floor);
 </script>
 
 {#snippet pill(label: string, c: string)}
-	<span class="rounded-full px-2 py-0.5 text-xs font-semibold" style="color:{c};background:{c}22"
-		>{label}</span
+	<span
+		class="rounded-full px-2 py-0.5 text-xs font-semibold"
+		style="color:{c};background:color-mix(in oklab, {c} 13%, transparent)">{label}</span
 	>
 {/snippet}
 
@@ -82,8 +85,7 @@
 				<span class={pf.lit[p.room.id] ? 'text-success' : 'text-foreground'}
 					>{pf.lit[p.room.id] ? 'Powered' : 'Blackout'}</span
 				>
-				· ≈ {compact.format(pf.residents[p.room.id])} residents · {p.room.w}×{p.room.h} block, single
-				door
+				· ≈ {formatCompact(pf.residents[p.room.id])} residents · {p.room.w}×{p.room.h} block, single door
 			{/if}
 		</p>
 
@@ -92,12 +94,11 @@
 			<div class="flex flex-col gap-2 text-xs">
 				<div class="flex items-center justify-between">
 					<span class="font-medium text-foreground">Lung sickness</span>
-					<span class="font-semibold tabular-nums">{Math.round(sickness.score * 100)}%</span>
+					<span class="font-semibold tabular-nums">{formatPercent(sickness.score)}</span>
 				</div>
 				<SicknessScale score={sickness.score} />
 				<p class="text-muted-foreground">
-					{sickness.sick.toLocaleString('en')} of {sickness.reported.toLocaleString('en')} reported residents
-					sick
+					{formatCount(sickness.sick)} of {formatCount(sickness.reported)} reported residents sick
 				</p>
 				<p class="text-[10px] text-muted-foreground">Simulated reports</p>
 			</div>
@@ -135,13 +136,13 @@
 					<span class="font-medium text-foreground">Impact</span>
 					{#if impact.active}
 						<span class="font-semibold">
-							≈ {compact.format(impact.affectedTotal)} residents affected
+							≈ {formatCompact(impact.affectedTotal)} residents affected
 						</span>
 					{/if}
 				</div>
 				{#if !impact.active}
 					<p class="text-muted-foreground">
-						Serves ≈ {compact.format(impact.dependentTotal)} residents in {impact.neighborhoods
+						Serves ≈ {formatCompact(impact.dependentTotal)} residents in {impact.neighborhoods
 							.length} neighborhoods. No one is affected while it reads {STATUS_INFO[
 							impact.status
 						].label.toLowerCase()}.
@@ -162,7 +163,7 @@
 								{@const sev = STATUS_INFO[n.severity]}
 								<tr>
 									<td class="py-0.5 text-muted-foreground">{n.name}</td>
-									<td class="py-0.5 text-right tabular-nums">≈ {compact.format(n.affected)}</td>
+									<td class="py-0.5 text-right tabular-nums">≈ {formatCompact(n.affected)}</td>
 									<td class="py-0.5 text-right">{@render pill(sev.label, sev.color)}</td>
 								</tr>
 							{/each}

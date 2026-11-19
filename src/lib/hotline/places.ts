@@ -5,9 +5,9 @@
  * housing blocks are numbered. So a few blocks per level get a landmark name here, chosen
  * deterministically from the seeded map so every client and the server agree.
  */
-import { HOLLOW_SEED, LEVELS } from '#lib/hollow/data.js';
+import { LEVELS } from '#lib/hollow/data.js';
 import { placesOn } from '#lib/hollow/nav.js';
-import { createHollow } from '#lib/hollow/world.js';
+import { getHollow } from '#lib/hollow/simulation.js';
 
 export interface Building {
 	key: string;
@@ -40,10 +40,9 @@ const LANDMARKS: string[][] = [
 ];
 
 let cache: Building[][] | null = null;
-let world: ReturnType<typeof createHollow> | null = null;
 
 /** The seeded Hollow, shared by building lookups and route planning. */
-export const hollowWorld = () => (world ??= createHollow(HOLLOW_SEED));
+export const hollowWorld = getHollow;
 
 /** Named buildings for every level, index 0 = L1. */
 export function buildings(): Building[][] {

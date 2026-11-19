@@ -2,6 +2,8 @@
 	import { LEVELS } from '#lib/hollow/data.js';
 	import { ALERT_INFO, ALERT_KINDS, type HollowAlert } from '#lib/hollow/alerts.js';
 	import { actionFor, floorState, type Action } from '#lib/hollow/response.js';
+	import { formatCompact } from '#lib/hollow/format.js';
+	import { getHollow } from '#lib/hollow/simulation.js';
 	import { STATUS_INFO } from '#lib/hollow/sensors.js';
 	import { cn } from '#lib/utils.js';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
@@ -9,11 +11,10 @@
 	import CornerDownRightIcon from '@lucide/svelte/icons/corner-down-right';
 	import CircleCheckIcon from '@lucide/svelte/icons/circle-check';
 	import AlertIcon from './alert-icon.svelte';
-	import { hollow } from './hollow.js';
 	import { home, mapNav } from './home-state.svelte.js';
 	import { dispatch, response } from './response-state.svelte.js';
 
-	const compact = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
+	const hollow = getHollow();
 	const byRank = (a: HollowAlert, b: HollowAlert) =>
 		STATUS_INFO[b.severity].rank - STATUS_INFO[a.severity].rank || b.residents - a.residents;
 
@@ -138,7 +139,7 @@
 								<span class="truncate text-[11px]">
 									{a.detail} ·
 									<span class="font-semibold text-foreground tabular-nums"
-										>{compact.format(a.residents)}</span
+										>{formatCompact(a.residents)}</span
 									> residents
 								</span>
 								{#if a.chain.length}

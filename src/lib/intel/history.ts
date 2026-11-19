@@ -1,4 +1,5 @@
 import { LEVELS } from '#lib/hollow/data.js';
+import { mulberry32 } from '#lib/random.js';
 import type { LevelCode } from './types.js';
 
 /**
@@ -127,18 +128,6 @@ export interface WeeklyRecord {
 	/** How long after the week ended the clinic report reached the system. */
 	receivedLagHours: number;
 	incidentId?: string;
-}
-
-/** Small deterministic PRNG (same algorithm as the tunnel generator). */
-function mulberry32(seed: number) {
-	let a = seed >>> 0;
-	return () => {
-		a = (a + 0x6d2b79f5) >>> 0;
-		let t = a;
-		t = Math.imul(t ^ (t >>> 15), t | 1);
-		t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-	};
 }
 
 const DAY = 864e5;

@@ -4,7 +4,7 @@ import { hash01, shade, type LayerStyle, type Prop, type RoomLook } from '#lib/m
 import { FACILITY_INFO, LEVELS, SHAFTS, SHAFT_COLORS, type FacilityKind } from './data.js';
 import type { Floor } from './world.js';
 import { SICK_STEPS, sickStep, sicknessOf } from './sickness.js';
-import { token, type Token } from './theme.js';
+import { cssColor, token, type Token } from './theme.js';
 import type { AlertKind } from './alerts.js';
 import { floorState } from './response.js';
 import type { Status } from './sensors.js';
@@ -70,13 +70,13 @@ export function roomHeight(floor: Floor, r: Room) {
 /** One look for a shaft everywhere it appears: tinted by its status. */
 export function shaftColors(shaft: number) {
 	const wall = token('map-shaft');
-	if (shaft >= 0) wall.lerp(new THREE.Color(SHAFT_COLORS[SHAFTS[shaft].status]), 0.35);
+	if (shaft >= 0) wall.lerp(cssColor(SHAFT_COLORS[SHAFTS[shaft].status]), 0.35);
 	return { wall, roof: wall.clone().multiplyScalar(1.15), well: token('map-well') };
 }
 
 /** Simple fixtures on a facility's roof that say what it is at a glance (room-local tiles). */
 function facilityProps(kind: FacilityKind, r: Room, y: number): Prop[] {
-	const accent = new THREE.Color(FACILITY_INFO[kind].color);
+	const accent = cssColor(FACILITY_INFO[kind].color);
 	const dim = accent.clone().multiplyScalar(0.55);
 	const cx = r.w / 2;
 	const cy = r.h / 2;
@@ -213,7 +213,7 @@ export function floorStyle(floor: Floor, lens: MapLens | null = null): LayerStyl
 				if (tint) return { ...base, roof: tint, wall: tint.clone().multiplyScalar(0.7) };
 				const src = alerts.sources.get(r.id);
 				if (src && show(src)) {
-					const accent = new THREE.Color(FACILITY_INFO[src as 'air' | 'water'].color);
+					const accent = cssColor(FACILITY_INFO[src as 'air' | 'water'].color);
 					return {
 						...base,
 						roof: accent,
@@ -224,7 +224,7 @@ export function floorStyle(floor: Floor, lens: MapLens | null = null): LayerStyl
 				return { ...base, ...muted };
 			}
 			if (facility) {
-				const accent = new THREE.Color(FACILITY_INFO[facility.kind].color);
+				const accent = cssColor(FACILITY_INFO[facility.kind].color);
 				return {
 					...base,
 					wall: c.placeWall.clone().lerp(accent, 0.3),

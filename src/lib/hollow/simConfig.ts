@@ -1,0 +1,215 @@
+/**
+ * Seeds and tuning for the Hollow's simulated data, in one place. Read it through
+ * `simulation.ts`; it is a separate module only so the simulations can import it without an
+ * import cycle.
+ *
+ * Every number here changes the generated data. The defaults reproduce the data the app
+ * shipped with, so change them on purpose (and re-check the pinned lore in `data.ts`).
+ */
+import { HOLLOW_SEED } from './data.js';
+
+// ── Seeds ───────────────────────────────────────────────────────────────────
+
+/** The independent random streams the simulation draws from. */
+export type SimStream = 'world' | 'sickness' | 'sensors';
+
+/**
+ * Each stream's seed is the city seed XOR a fixed salt, so one city seed drives all of them
+ * while they stay distinct. The salts are chosen so the default city (`HOLLOW_SEED`) keeps
+ * the data it shipped with.
+ */
+const STREAM_SALT: Record<SimStream, number> = {
+	world: 0,
+	sickness: 0x5eed ^ HOLLOW_SEED,
+	sensors: HOLLOW_SEED
+};
+
+/** The seed one simulation draws from, for a given city seed. */
+export const streamSeed = (citySeed: number, stream: SimStream) => citySeed ^ STREAM_SALT[stream];
+
+// ── Tuning ──────────────────────────────────────────────────────────────────
+
+/** A random amount: `min + r * span` for r in [0, 1). */
+export interface Spread {
+	min: number;
+	span: number;
+}
+export const spread = ({ min, span }: Spread, r: number) => min + r * span;
+
+export type Status = 'normal' | 'warning' | 'high' | 'critical';
+
+/** Facility kinds that carry sensors. */
+export type MonitoredKind = 'water' | 'air' | 'clinic' | 'plant';
+
+export interface Metric {
+	key: string;
+	label: string;
+	unit: string;
+	/** Healthy value. Whether higher or lower is worse follows from `good` vs `critical`. */
+	good: number;
+	warning: number;
+	high: number;
+	critical: number;
+	digits: number;
+}
+
+export const SIM = {
+	/** Power and population (`world.ts`). Level-wide conditions live on `LEVELS` in `data.ts`. */
+	world: {
+		/**
+		 * Share of housing blocks with power: `min` on a pitch-dark level, plus `span` × the
+		 * level's light. Facilities and infrastructure always have power.
+		 */
+		powered: { min: 0.15, span: 0.85 } satisfies Spread,
+		/** Facilities go in chambers at least this many tiles across. */
+		facilityMinSize: 3
+	},
+
+	/** Lung-sickness reports (`sickness.ts`). "Per level down" compounds from L1. */
+	sickness: {
+		/** Background sick rate on L1, and the share of it each level down keeps. */
+		background: 0.14,
+		backgroundDecay: 0.75,
+		/** Hotspots on L1, and how many fewer each level down (always at least one). */
+		hotspots: 9,
+		hotspotsDrop: 1.3,
+		/** Share of the hotspots' size and heat each level down keeps. */
+		reachDecay: 0.82,
+		/** Hotspot radius in tiles and peak sick share, before scaling by reach. */
+		radius: { min: 8, span: 18 } satisfies Spread,
+		peak: { min: 0.8, span: 0.3 } satisfies Spread,
+		/** Chance (on L1) of an isolated sick block outside any hotspot, and its score. */
+		stray: 0.03,
+		strayScore: { min: 0.3, span: 0.4 } satisfies Spread,
+		/** Share of a block's residents who file a health report. */
+		reportShare: { min: 0.04, span: 0.16 } satisfies Spread
+	},
+
+	/** Sensor readings (`sensors.ts`). Readings pinned to the lore are on the facilities in `data.ts`. */
+	sensors: {
+		/** Per-reading noise around the level's stress (± half of this, in threshold units). */
+		jitter: 0.35,
+		/** What each kind of facility measures, and the thresholds that set its status. */
+		metrics: {
+			water: [
+				{
+					key: 'turbidity',
+					label: 'Turbidity',
+					unit: 'NTU',
+					good: 0.3,
+					warning: 1,
+					high: 4,
+					critical: 10,
+					digits: 1
+				},
+				{
+					key: 'chlorine',
+					label: 'Free chlorine',
+					unit: 'mg/L',
+					good: 1.2,
+					warning: 0.5,
+					high: 0.2,
+					critical: 0.05,
+					digits: 2
+				},
+				{
+					key: 'output',
+					label: 'Recycler output',
+					unit: '%',
+					good: 98,
+					warning: 80,
+					high: 60,
+					critical: 40,
+					digits: 0
+				}
+			],
+			air: [
+				{
+					key: 'co2',
+					label: 'CO₂',
+					unit: 'ppm',
+					good: 600,
+					warning: 1000,
+					high: 2000,
+					critical: 5000,
+					digits: 0
+				},
+				{
+					key: 'pm25',
+					label: 'PM2.5',
+					unit: 'µg/m³',
+					good: 5,
+					warning: 15,
+					high: 35,
+					critical: 75,
+					digits: 0
+				},
+				{
+					key: 'airflow',
+					label: 'Airflow',
+					unit: '% rated',
+					good: 100,
+					warning: 80,
+					high: 60,
+					critical: 40,
+					digits: 0
+				}
+			],
+			clinic: [
+				{
+					key: 'beds',
+					label: 'Bed occupancy',
+					unit: '%',
+					good: 60,
+					warning: 85,
+					high: 95,
+					critical: 100,
+					digits: 0
+				},
+				{
+					key: 'stock',
+					label: 'Medicine stock',
+					unit: 'days',
+					good: 30,
+					warning: 14,
+					high: 7,
+					critical: 3,
+					digits: 0
+				}
+			],
+			plant: [
+				{
+					key: 'power',
+					label: 'Power output',
+					unit: '% rated',
+					good: 100,
+					warning: 85,
+					high: 70,
+					critical: 50,
+					digits: 0
+				},
+				{
+					key: 'coolant',
+					label: 'Coolant temp',
+					unit: '°C',
+					good: 70,
+					warning: 90,
+					high: 105,
+					critical: 120,
+					digits: 0
+				}
+			]
+		} satisfies Record<MonitoredKind, readonly Metric[]>
+	},
+
+	/** Impact assessment (`impact.ts`). */
+	impact: {
+		/** Share of dependent residents who lose service, by facility status. */
+		exposure: { normal: 0, warning: 0, high: 0.5, critical: 1 } satisfies Record<Status, number>,
+		/**
+		 * A neighborhood's severity drops one step below the facility's status when fewer than
+		 * `oneStep` of its residents depend on it, and two below `twoSteps` (never below Warning).
+		 */
+		soften: { oneStep: 0.5, twoSteps: 0.2 }
+	}
+} as const;
