@@ -216,9 +216,25 @@
 	}
 	/** Pin height above the floor, by kind: over the roof of its building. */
 	const pinHeight = (kind: PlaceKind) => (kind === 'shaft' ? 7.5 : kind === 'plant' ? 4.5 : 3.5);
+	/** The saved home's pin; it shows on its own level and in the all-levels view. */
+	const homePin = $derived<PinSpec | null>(
+		homePlace && (overview || homePlace.floor === levelIndex)
+			? {
+					key: 'home',
+					...placeCentre(homePlace),
+					h: 4,
+					level: homePlace.floor,
+					kind: 'home',
+					label: 'Home',
+					color: 'var(--primary)',
+					place: homePlace
+				}
+			: null
+	);
 	const pins = $derived.by<PinSpec[]>(() => {
+		const homePins = homePin ? [homePin] : [];
 		if (overview) {
-			return LEVELS.map((l) => {
+			return LEVELS.map((l): PinSpec => {
 				const [, minY, maxX, maxY] = floorBounds(hollow.floor(l.index));
 				return {
 					key: `level-${l.code}`,
@@ -230,24 +246,9 @@
 					label: l.name,
 					color: 'var(--foreground)'
 				};
-			});
+			}).concat(homePins);
 		}
 		void live.version;
-		const homePins: PinSpec[] =
-			homePlace?.floor === levelIndex
-				? [
-						{
-							key: 'home',
-							...placeCentre(homePlace),
-							h: 4,
-							level: levelIndex,
-							kind: 'home',
-							label: 'Home',
-							color: 'var(--primary)',
-							place: homePlace
-						}
-					]
-				: [];
 		const floorAlerts = alertMode ? floorState(floor) : null;
 		const alertPins: PinSpec[] = floorAlerts
 			? floorAlerts.active
@@ -557,10 +558,12 @@
 								<HouseIcon class="size-3.5" />
 							</span>
 							<span class="-mt-1 size-2 rotate-45 bg-primary" aria-hidden="true"></span>
-							{#if showNames}
+							{#if showNames || overview}
 								<span
 									class="mt-0.5 text-xs font-semibold whitespace-nowrap text-foreground [text-shadow:0_0_3px_var(--background),0_0_6px_var(--background)]"
-									>Home · {place.label.replace('Block ', '')}</span
+									>Home · {overview
+										? LEVELS[place.floor].code
+										: place.label.replace('Block ', '')}</span
 								>
 							{/if}
 						</button>
