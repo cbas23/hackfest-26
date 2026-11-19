@@ -1,7 +1,7 @@
 import type { MapLens } from '#lib/hollow/mapStyle.js';
 
 /** Ids of the sidebar's data-layer cards (see `LAYERS` in app-sidebar.svelte). */
-export type LayerId = 'sickness';
+export type LayerId = 'alerts' | 'sickness';
 
 /** UI state shared between the sidebar and the map. */
 export const home = $state({
@@ -15,6 +15,7 @@ export const home = $state({
 
 /** How each data-layer card repaints the map while it is open (null: it doesn't). */
 export const SECTION_LENS: Record<LayerId, MapLens | null> = {
+	alerts: 'alerts',
 	sickness: 'sickness'
 };
 
@@ -24,6 +25,8 @@ export const openLens = () => (home.section ? SECTION_LENS[home.section] : null)
 interface MapNav {
 	goTo(index: number): void;
 	setOverview(on: boolean): void;
+	/** Go to a level and fly the camera to a tile point on it. */
+	focus(level: number, x: number, y: number): void;
 }
 
 let nav: MapNav | null = null;
@@ -33,5 +36,6 @@ export const registerMapNav = (n: MapNav | null) => {
 };
 export const mapNav: MapNav = {
 	goTo: (index) => nav?.goTo(index),
-	setOverview: (on) => nav?.setOverview(on)
+	setOverview: (on) => nav?.setOverview(on),
+	focus: (level, x, y) => nav?.focus(level, x, y)
 };

@@ -8,6 +8,9 @@
 	import type { Component, Snippet } from 'svelte';
 	import LayersIcon from '@lucide/svelte/icons/layers';
 	import WindIcon from '@lucide/svelte/icons/wind';
+	import SirenIcon from '@lucide/svelte/icons/siren';
+	import { STATUS_INFO } from '#lib/hollow/sensors.js';
+	import AlertList from './alert-list.svelte';
 	import SicknessScale from './sickness-scale.svelte';
 	import { home, mapNav, type LayerId } from './home-state.svelte.js';
 
@@ -29,6 +32,14 @@
 	/** Data layers: cards that repaint the map while open (their lens is in SECTION_LENS). */
 	const LAYERS: Layer[] = [
 		{
+			id: 'alerts',
+			title: 'Blackout & air alerts',
+			summary: 'Power cuts and failing vents',
+			icon: SirenIcon,
+			color: STATUS_INFO.critical.color,
+			content: alertsInfo
+		},
+		{
 			id: 'sickness',
 			title: 'Lung sickness',
 			summary: 'Reported cases by block',
@@ -39,6 +50,10 @@
 		}
 	];
 </script>
+
+{#snippet alertsInfo()}
+	<AlertList />
+{/snippet}
 
 {#snippet sicknessInfo()}
 	<p>
@@ -122,7 +137,7 @@
 									style="color:{layer.color};border-color:{layer.color};background:color-mix(in oklab, {layer.color} 18%, var(--card))"
 									aria-hidden="true"
 								>
-									<layer.icon class="size-4" />
+									<layer.icon class={cn('size-4', layer.id === 'alerts' && 'alert-blink')} />
 								</span>
 								<span class="flex min-w-0 flex-col">
 									<span class="truncate">{layer.title}</span>

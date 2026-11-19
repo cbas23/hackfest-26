@@ -7,11 +7,12 @@
  * - Inputs and lore: levels, facilities and shafts in `data.ts`, including the sensor
  *   readings pinned to the facility notes.
  * - The models: `world.ts` (power, residents, facility placement), `nav.ts` (places),
- *   `sickness.ts`, `sensors.ts` and `impact.ts`.
+ *   `sickness.ts`, `sensors.ts`, `impact.ts` and `alerts.ts`.
  *
  * Pages read the data through `getHollow()` and `simulateFloor()`. `snapshot()` dumps all of
  * it as plain data, for tests and debugging.
  */
+import { alertsOn, type FloorAlerts } from './alerts.js';
 import { HOLLOW_SEED, LEVELS } from './data.js';
 import { assessImpact, type ImpactAssessment } from './impact.js';
 import { placesOn, type Place } from './nav.js';
@@ -37,6 +38,8 @@ export interface FloorSimulation {
 	status(place: Place): FacilityStatus | null;
 	/** What a monitored facility's status means for the residents who depend on it. */
 	impact(place: Place): ImpactAssessment | null;
+	/** Blackout and air alerts on the floor, worst first. */
+	readonly alerts: FloorAlerts;
 }
 
 export const simulateFloor = perFloor((floor): FloorSimulation => ({
@@ -48,7 +51,10 @@ export const simulateFloor = perFloor((floor): FloorSimulation => ({
 		return sicknessOf(floor);
 	},
 	status: (place) => facilityStatus(floor, place),
-	impact: (place) => assessImpact(floor, place)
+	impact: (place) => assessImpact(floor, place),
+	get alerts() {
+		return alertsOn(floor);
+	}
 }));
 
 /**

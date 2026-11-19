@@ -2,13 +2,19 @@
 	import { onMount } from 'svelte';
 	import type { Room } from '#lib/tunnels/generate.js';
 	import { LEVELS } from '#lib/hollow/data.js';
-	import { formatCount, formatDepth, formatPercent } from '#lib/hollow/format.js';
+	import { formatCompact, formatCount, formatDepth, formatPercent } from '#lib/hollow/format.js';
 	import { placeCentre, placeColor, type Place, type PlaceKind } from '#lib/hollow/nav.js';
 	import { createHollowMap, type HollowMap, type Pick } from '#lib/hollow/hollowMap.js';
 	import { STATUS_INFO, type Status } from '#lib/hollow/sensors.js';
 	import { getHollow, simulateFloor } from '#lib/hollow/simulation.js';
 	import { floorBounds, type Floor } from '#lib/hollow/world.js';
 	import { sicknessTotals } from '#lib/hollow/sickness.js';
+	import { alertTotals, type HollowAlert } from '#lib/hollow/alerts.js';
+	import { Tween } from 'svelte/motion';
+	import { cubicOut } from 'svelte/easing';
+	import ZapOffIcon from '@lucide/svelte/icons/zap-off';
+	import WindIcon from '@lucide/svelte/icons/wind';
+	import SirenIcon from '@lucide/svelte/icons/siren';
 	import SicknessScale from './sickness-scale.svelte';
 	import { home, openLens, registerMapNav } from './home-state.svelte.js';
 	import { bindMapKeys, KEY_HINTS, ZOOM_STEP } from './map-keys.js';
@@ -125,6 +131,12 @@
 		scene?.flyTo(c.x, c.y, { distance: Math.min(distance, 70) });
 	}
 
+	function focus(level: number, x: number, y: number) {
+		goTo(level);
+		select(null);
+		scene?.flyTo(x, y, { distance: Math.min(distance, 90) });
+	}
+
 	function onPick(pick: Pick | null) {
 		if (overview) {
 			if (pick) goTo(pick.level);
@@ -141,12 +153,13 @@
 		x: number;
 		y: number;
 		h: number;
-		kind: PlaceKind | 'level';
+		kind: PlaceKind | 'level' | 'alert';
 		level: number;
 		label: string;
 		color: string;
 		place?: Place;
 		status?: Status;
+		alert?: HollowAlert;
 	}
 	/** Pin height above the floor, by kind: over the roof of its building. */
 	const pinHeight = (kind: PlaceKind) => (kind === 'shaft' ? 7.5 : kind === 'plant' ? 4.5 : 3.5);
@@ -166,9 +179,23 @@
 				};
 			});
 		}
+		const alertPins: PinSpec[] =
+			lens === 'alerts'
+				? sim.alerts.alerts.map((a) => ({
+						key: `alert-${a.id}`,
+						x: a.x,
+						y: a.y,
+						h: 5,
+						level: levelIndex,
+						kind: 'alert',
+						label: a.title,
+						color: STATUS_INFO[a.severity].color,
+						alert: a
+					}))
+				: [];
 		return sim.places
-			.filter((p) => p.kind !== 'block')
-			.map((p) => ({
+			.filter((p) => p.kind !== 'block' && !(lens === 'alerts' && p.kind === 'air'))
+			.map((p): PinSpec => ({
 				key: p.key,
 				...placeCentre(p),
 				h: pinHeight(p.kind),
@@ -178,7 +205,8 @@
 				color: placeColor(p),
 				place: p,
 				status: sim.status(p)?.status
-			}));
+			}))
+			.concat(alertPins);
 	});
 	const pinEls = $state<Record<string, HTMLElement>>({});
 	$effect(() => {
@@ -213,6 +241,40 @@
 	const sickTotals = $derived(
 		lens === 'sickness' ? sicknessTotals(overview ? allFloors() : [floor]) : null
 	);
+	// ── Alerts lens ─────────────────────────────────────────────────────────
+	const alertList = $derived(
+		lens === 'alerts'
+			? (overview ? allFloors() : [floor]).flatMap((f) => simulateFloor(f).alerts.alerts)
+			: null
+	);
+	const totals = $derived(alertList ? alertTotals(alertList) : null);
+	const SEVERITIES: Status[] = ['critical', 'high', 'warning'];
+	const bySeverity = $derived(
+		SEVERITIES.map((s) => ({ s, n: alertList?.filter((a) => a.severity === s).length ?? 0 }))
+	);
+	const tweenOpts = { duration: 900, easing: cubicOut };
+	const countT = new Tween(0, tweenOpts);
+	const darkT = new Tween(0, tweenOpts);
+	const airT = new Tween(0, tweenOpts);
+	$effect(() => {
+		countT.set(totals?.count ?? 0);
+		darkT.set(totals?.blackoutResidents ?? 0);
+		airT.set(totals?.airResidents ?? 0);
+	});
+	// The worst blocks on the shown level throb in the 3D map.
+	$effect(() => {
+		if (lens !== 'alerts' || overview) {
+			scene?.setAlertPulse([]);
+			return;
+		}
+		const rooms: { room: Room; color: string }[] = [];
+		for (const a of sim.alerts.alerts) {
+			if (a.severity !== 'critical') continue;
+			for (const id of a.blocks)
+				rooms.push({ room: floor.map.rooms[id], color: STATUS_INFO[a.severity].color });
+		}
+		scene?.setAlertPulse(rooms);
+	});
 	const selectedSickness = $derived(
 		lens === 'sickness' && selected?.kind === 'block' && selectedSim
 			? selectedSim.sickness[selected.room.id]
@@ -237,7 +299,7 @@
 			}
 		});
 		scene = s;
-		registerMapNav({ goTo, setOverview });
+		registerMapNav({ goTo, setOverview, focus });
 		s.showFloor(hollow.floor(0), 0);
 		s.fitBounds(...floorBounds(hollow.floor(0)));
 		// Open on the all-levels stack.
@@ -307,14 +369,54 @@
 						{l.name}
 						<span class="text-muted-foreground tabular-nums">{formatDepth(l.depth)}</span>
 					</Button>
-				{:else}
+				{:else if p.alert}
+					{@const a = p.alert}
 					<button
 						class="pointer-events-auto absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center"
-						onclick={() => p.place && focusPlace(p.place)}
+						onclick={() => focus(a.floor, a.x, a.y)}
+						aria-label="{a.title}: {a.where}"
+					>
+						<span class="relative grid size-8 place-items-center">
+							{#if a.severity !== 'warning'}
+								<span
+									class="alert-ring absolute inset-0 rounded-full border-2"
+									style="border-color:{p.color}"
+								></span>
+								<span
+									class="alert-ring absolute inset-0 rounded-full border-2"
+									style="border-color:{p.color};animation-delay:0.7s"
+								></span>
+							{/if}
+							<span
+								class="relative grid size-7 place-items-center rounded-full border-2 border-background text-white shadow-lg"
+								style="background:{p.color};box-shadow:0 0 14px {p.color}"
+							>
+								{#if a.kind === 'blackout'}<ZapOffIcon class="size-3.5" />{:else}<WindIcon
+										class="size-3.5"
+									/>{/if}
+							</span>
+						</span>
+						{#if showNames}
+							<span
+								class="mt-0.5 rounded px-1 text-[10px] font-bold tracking-wide whitespace-nowrap uppercase"
+								style="color:{p.color};text-shadow:0 0 3px var(--background),0 0 6px var(--background)"
+								>{a.title}</span
+							>
+						{/if}
+					</button>
+				{:else if p.place}
+					{@const place = p.place}
+					<button
+						class="pointer-events-auto absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center"
+						onclick={() => focusPlace(place)}
 						aria-label={p.label}
 					>
 						<span class="relative">
-							<PlaceIcon kind={p.kind} color={p.color} size={p.kind === 'shaft' ? 28 : 24} />
+							<PlaceIcon
+								kind={place.kind}
+								color={p.color}
+								size={place.kind === 'shaft' ? 28 : 24}
+							/>
 							{#if p.status}
 								<span
 									class="absolute -top-0.5 -right-0.5 size-2.5 rounded-full border-2 border-background"
@@ -354,6 +456,71 @@
 			{/each}
 		</ToggleGroup.Root>
 	</div>
+
+	{#if totals && totals.critical > 0}
+		<div class="alert-vignette pointer-events-none absolute inset-0 z-[5]" aria-hidden="true"></div>
+	{/if}
+
+	{#if totals}
+		<div
+			class="alert-in absolute top-16 left-4 z-10 flex w-64 flex-col gap-2.5 overflow-hidden rounded-lg border border-destructive/40 bg-background/90 p-3 text-xs shadow-[0_0_30px_-8px_var(--destructive)] backdrop-blur md:top-4"
+			role="status"
+		>
+			<div class="flex items-center justify-between">
+				<span class="flex items-center gap-2 font-semibold tracking-wide uppercase">
+					<SirenIcon class="alert-blink size-4 text-destructive" aria-hidden="true" />
+					Alerts
+				</span>
+				<span class="flex items-center gap-1.5 text-muted-foreground">
+					<span class="relative flex size-2">
+						<span class="absolute inset-0 animate-ping rounded-full bg-destructive opacity-75"
+						></span>
+						<span class="relative size-2 rounded-full bg-destructive"></span>
+					</span>
+					LIVE · {overview ? 'All levels' : level.code}
+				</span>
+			</div>
+			<div class="flex items-baseline gap-2">
+				<span class="text-3xl font-bold text-foreground tabular-nums"
+					>{Math.round(countT.current)}</span
+				>
+				<span class="text-muted-foreground"
+					>active · <span class="font-semibold text-destructive">{totals.critical} critical</span
+					></span
+				>
+			</div>
+			<div class="flex h-1.5 w-full gap-0.5 overflow-hidden rounded-full bg-muted">
+				{#each bySeverity as { s, n } (s)}
+					{#if n}
+						<span
+							class="h-full transition-[flex-grow] duration-700"
+							style="flex-grow:{n};background:{STATUS_INFO[s].color}"
+							title="{n} {STATUS_INFO[s].label}"
+						></span>
+					{/if}
+				{/each}
+			</div>
+			<div class="grid grid-cols-2 gap-2">
+				<div class="flex flex-col gap-0.5 rounded-md border bg-card/60 p-2">
+					<span class="flex items-center gap-1 text-muted-foreground"
+						><ZapOffIcon class="size-3" aria-hidden="true" /> In the dark</span
+					>
+					<span class="text-base font-semibold text-foreground tabular-nums"
+						>{formatCompact(darkT.current)}</span
+					>
+				</div>
+				<div class="flex flex-col gap-0.5 rounded-md border bg-card/60 p-2">
+					<span class="flex items-center gap-1 text-muted-foreground"
+						><WindIcon class="size-3" aria-hidden="true" /> Bad air</span
+					>
+					<span class="text-base font-semibold text-foreground tabular-nums"
+						>{formatCompact(airT.current)}</span
+					>
+				</div>
+			</div>
+			<p class="text-[10px] text-muted-foreground">Residents affected · simulated</p>
+		</div>
+	{/if}
 
 	{#if sickTotals}
 		<div
