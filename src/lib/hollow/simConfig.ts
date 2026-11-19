@@ -11,7 +11,7 @@ import { HOLLOW_SEED } from './data.js';
 // ── Seeds ───────────────────────────────────────────────────────────────────
 
 /** The independent random streams the simulation draws from. */
-export type SimStream = 'world' | 'sickness' | 'scenario';
+export type SimStream = 'world' | 'sickness' | 'scenario' | 'power' | 'water' | 'air';
 
 /**
  * Each stream's seed is the city seed XOR a fixed salt, so one city seed drives all of them
@@ -21,7 +21,10 @@ export type SimStream = 'world' | 'sickness' | 'scenario';
 const STREAM_SALT: Record<SimStream, number> = {
 	world: 0,
 	sickness: 0x5eed ^ HOLLOW_SEED,
-	scenario: 0xb1ac
+	scenario: 0xb1ac,
+	power: 0x9a3e,
+	water: 0x3a7e,
+	air: 0xa1f0
 };
 
 /** The seed one simulation draws from, for a given city seed. */
@@ -61,12 +64,58 @@ export const SIM = {
 		reportShare: { min: 0.04, span: 0.16 } satisfies Spread
 	},
 
+	/**
+	 * Power, water and air per housing block (`conditions.ts`), 0 (good) to 1 (bad). Each
+	 * block starts from a level-wide base plus seeded noise; every point of the kind then
+	 * pushes it towards bad, strongest at the point and fading with distance. Power and water
+	 * spread along the tunnels (walking distance to the block's door, so a point reaches what
+	 * its tunnels connect, not what is nearby through rock); air spreads over an area, like
+	 * the sickness hotspots. `edge` is the falloff's steepness: higher keeps the point's
+	 * strength further out and then drops sharply at its reach.
+	 */
+	conditions: {
+		power: {
+			spread: 'tunnels',
+			edge: 5,
+			/** Base on a level with no light (scaled by the level's darkness), and noise. */
+			base: 0.02,
+			levelWeight: 0.14,
+			noise: 0.12,
+			/** Per-block share of a point's push it feels (patchy edges). */
+			jitter: { min: 0.8, span: 0.35 } satisfies Spread
+		},
+		water: {
+			spread: 'tunnels',
+			edge: 2.2,
+			/** Base, plus up to this much more on L7 (scaled by depth). */
+			base: 0.04,
+			levelWeight: 0.16,
+			noise: 0.14,
+			jitter: { min: 0.75, span: 0.4 } satisfies Spread
+		},
+		air: {
+			spread: 'area',
+			edge: 4,
+			/** Base, plus up to this much more where the level's air supply is thinnest. */
+			base: 0.03,
+			levelWeight: 0.2,
+			noise: 0.12,
+			jitter: { min: 0.75, span: 0.35 } satisfies Spread
+		}
+	},
+
 	/** The starter scenario the control center loads (`scenario.ts`), drawn from the `scenario` stream. */
 	scenario: {
 		/** Points per level and kind: up to `max` (more on the darker, deeper levels), at least `min`. */
 		points: { min: 1, max: 4 },
-		/** Point radius in tiles, growing a little with depth. */
-		pointRadius: { min: 6, span: 12 } satisfies Spread,
+		/** Point reach in tiles per kind (along the tunnels for power and water), growing a little with depth. */
+		pointRadius: {
+			power: { min: 18, span: 24 },
+			water: { min: 25, span: 30 },
+			air: { min: 8, span: 14 }
+		} satisfies Record<'power' | 'water' | 'air', Spread>,
+		/** Point strength (its push at the centre). */
+		pointStrength: { min: 0.55, span: 0.45 } satisfies Spread,
 		/** Blocked tunnel stretches per level, and their length in tiles. */
 		blockedTunnels: { min: 1, span: 3 } satisfies Spread,
 		blockedLength: { min: 2, span: 4 } satisfies Spread,

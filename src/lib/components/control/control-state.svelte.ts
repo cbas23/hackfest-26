@@ -20,8 +20,9 @@ export const isPointTab = (tab: ControlTab): tab is PointKind =>
 export const control = $state({
 	level: 0,
 	tab: 'power' as ControlTab,
-	/** New points' radius, in tiles. */
-	radius: 12,
+	/** New points' reach, in tiles (along the tunnels for power and water), and strength. */
+	radius: 24,
+	strength: 0.8,
 	/** New blocked tunnels' length and reason. */
 	tunnelLength: 3,
 	reason: SIM.scenario.blockedReasons[0] as string,
@@ -44,10 +45,19 @@ async function run(fn: () => Promise<unknown>) {
 }
 
 export const addPoint = (kind: PointKind, x: number, y: number) =>
-	run(() => mutate(api.points.add, { kind, level: control.level, x, y, radius: control.radius }));
+	run(() =>
+		mutate(api.points.add, {
+			kind,
+			level: control.level,
+			x,
+			y,
+			radius: control.radius,
+			strength: control.strength
+		})
+	);
 
-export const setPointRadius = (id: string, radius: number) =>
-	run(() => mutate(api.points.update, { id: id as Id<'points'>, patch: { radius } }));
+export const updatePoint = (id: string, patch: { radius?: number; strength?: number }) =>
+	run(() => mutate(api.points.update, { id: id as Id<'points'>, patch }));
 
 export const removePoint = (id: string) =>
 	run(() => mutate(api.points.remove, { id: id as Id<'points'> }));

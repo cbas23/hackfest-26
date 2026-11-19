@@ -18,7 +18,8 @@
 	import { connectLive, live } from '#lib/live/state.svelte.js';
 	import { floorBounds, type Floor } from '#lib/hollow/world.js';
 	import SicknessScale from './sickness-scale.svelte';
-	import StateLegend from './state-legend.svelte';
+	import StepScale from './step-scale.svelte';
+	import { CONDITION_STEPS } from '#lib/hollow/conditions.js';
 	import TunnelLegend from './tunnel-legend.svelte';
 	import { home, openLens, registerMapNav, setAddress } from './home-state.svelte.js';
 	import { placeByKey } from './address.js';
@@ -543,17 +544,14 @@
 			{@render lensPanel('Lung sickness', sickBody)}
 		{:else if pointNow && pointKind}
 			{@const info = POINT_INFO[pointKind]}
+			{@const steps = CONDITION_STEPS[pointKind]}
 			{#snippet pointBody()}
-				<StateLegend kind={pointKind!} />
+				<StepScale {steps} />
 				<p class="text-muted-foreground">
-					{#if pointNow!.bad}
-						<span class="font-semibold text-foreground tabular-nums"
-							>{formatPercent(pointNow!.share)}</span
-						>
-						of {formatCount(pointNow!.residents)} residents with {info.bad.toLowerCase()}
-					{:else}
-						{info.good} everywhere
-					{/if}
+					<span class="font-semibold text-foreground tabular-nums"
+						>{formatPercent(pointNow!.share)}</span
+					>
+					of {formatCount(pointNow!.residents)} residents at {steps[3].label.toLowerCase()} or {steps[4].label.toLowerCase()}
 				</p>
 			{/snippet}
 			{@render lensPanel(info.label, pointBody)}

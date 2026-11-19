@@ -5,6 +5,7 @@ import {
 	blockedTunnel,
 	checkLevel,
 	checkRadius,
+	checkStrength,
 	checkTiles,
 	point,
 	sicknessSettings
@@ -29,6 +30,7 @@ export const load = mutation({
 		for (const p of s.points) {
 			checkLevel(p.level);
 			checkRadius(p.radius);
+			checkStrength(p.strength);
 		}
 		for (const t of s.blockedTunnels) {
 			checkLevel(t.level);

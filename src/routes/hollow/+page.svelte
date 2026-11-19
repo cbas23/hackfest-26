@@ -14,6 +14,7 @@
 	import { routeOverlay } from '#lib/hollow/scene/route.js';
 	import { floorBounds, type Floor } from '#lib/hollow/world.js';
 	import { getHollow, pointTotals, simulateFloor } from '#lib/hollow/simulation.js';
+	import { CONDITION_STEPS, conditionStep } from '#lib/hollow/conditions.js';
 
 	const hollow = getHollow();
 	const placesFor = placesOn;
@@ -919,11 +920,9 @@
 				{:else if p.kind !== 'block'}
 					{p.note}
 				{:else}
-					<span
-						class={simulateFloor(pf).bad('power')[p.room.id]
-							? 'text-slate-400'
-							: 'text-emerald-400'}
-						>{simulateFloor(pf).bad('power')[p.room.id] ? 'No power' : 'Powered'}</span
+					{@const power = conditionStep(simulateFloor(pf).score('power')[p.room.id] ?? 0)}
+					<span class={power >= 3 ? 'text-slate-400' : 'text-emerald-400'}
+						>{CONDITION_STEPS.power[power].label}</span
 					>
 					· ≈ {compact.format(pf.residents[p.room.id])} residents · {p.room.w}×{p.room.h} block, single
 					door

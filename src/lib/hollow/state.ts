@@ -4,8 +4,9 @@
  * lives in Convex (`convex/`), is edited from the control center (`/control`) and is read by
  * the main map through `#lib/live`.
  *
- * - Points: a centre and a radius that make power, water or air bad for every housing block
- *   inside. A block is either good or bad for each kind; there is no history to resolve.
+ * - Points: sources of bad power, water or air. Each pushes the blocks it reaches towards
+ *   bad, fading out to its reach: along the tunnels for power and water, over an area for
+ *   air (`conditions.ts`). There is no history to resolve.
  * - Blocked tunnels: short stretches of tunnel that can't be passed.
  * - Sickness: the dials behind the lung-sickness hotspots (`sickness.ts`).
  *
@@ -17,14 +18,23 @@
 export type PointKind = 'power' | 'water' | 'air';
 export const POINT_KINDS: PointKind[] = ['power', 'water', 'air'];
 
-/** How each kind is named and coloured (colours are CSS variables, see `layout.css`). */
+/** How a kind's points spread: along the tunnels, or over an area. */
+export type PointSpread = 'tunnels' | 'area';
+
+/** How each kind is named, coloured and spread (colours are CSS variables, see `layout.css`). */
 export const POINT_INFO: Record<
 	PointKind,
-	{ label: string; good: string; bad: string; color: string }
+	{
+		label: string;
+		/** What a point of this kind is, e.g. "Power fault". */
+		point: string;
+		spread: PointSpread;
+		color: string;
+	}
 > = {
-	power: { label: 'Power', good: 'Powered', bad: 'No power', color: 'var(--map-power-bad)' },
-	water: { label: 'Water', good: 'Good water', bad: 'Bad water', color: 'var(--map-water-bad)' },
-	air: { label: 'Air', good: 'Good air', bad: 'Bad air', color: 'var(--map-air-bad)' }
+	power: { label: 'Power', point: 'Power fault', spread: 'tunnels', color: 'var(--map-power-4)' },
+	water: { label: 'Water', point: 'Contamination', spread: 'tunnels', color: 'var(--map-water-4)' },
+	air: { label: 'Air', point: 'Bad air', spread: 'area', color: 'var(--map-air-4)' }
 };
 
 export interface Tile {
@@ -32,7 +42,7 @@ export interface Tile {
 	y: number;
 }
 
-/** A bad spot for one kind: every housing block whose centre is inside the circle. */
+/** A source of bad power, water or air, at a tile. */
 export interface StatePoint {
 	id: string;
 	kind: PointKind;
@@ -40,8 +50,13 @@ export interface StatePoint {
 	level: number;
 	x: number;
 	y: number;
-	/** In tiles. */
+	/**
+	 * How far it reaches, in tiles: walking distance along the tunnels for power and water,
+	 * straight-line distance for air.
+	 */
 	radius: number;
+	/** Its push at the centre, 0–1 (1 when unset). */
+	strength?: number;
 	/** Optional words for the residents it touches. */
 	note?: string;
 }
@@ -78,4 +93,5 @@ export interface HollowState {
 }
 
 export const POINT_RADIUS = { min: 2, max: 60 } as const;
+export const POINT_STRENGTH = { min: 0.1, max: 1 } as const;
 export const BLOCKED_TILES = { min: 2, max: 5 } as const;

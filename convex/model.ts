@@ -10,8 +10,9 @@ import { v } from 'convex/values';
 export const pointKind = v.union(v.literal('power'), v.literal('water'), v.literal('air'));
 
 /**
- * A bad spot for one kind of service: every housing block whose centre is inside the
- * circle has bad power, water or air. Outside every point of a kind, that kind is good.
+ * A source of bad power, water or air at a tile. It pushes the blocks it reaches towards
+ * bad, fading out to `radius`: walking distance along the tunnels for power and water,
+ * straight-line distance for air (see `src/lib/hollow/conditions.ts`).
  */
 export const point = v.object({
 	kind: pointKind,
@@ -19,6 +20,8 @@ export const point = v.object({
 	x: v.number(),
 	y: v.number(),
 	radius: v.number(),
+	/** Its push at the centre, 0.1–1 (1 when unset). */
+	strength: v.optional(v.number()),
 	/** Optional words for the residents it touches. */
 	note: v.optional(v.string())
 });
@@ -51,6 +54,7 @@ export const sicknessSettings = v.object({
 /** The Hollow has seven levels, L1 (0) to L7 (6). */
 export const LEVEL_COUNT = 7;
 export const POINT_RADIUS = { min: 2, max: 60 } as const;
+export const POINT_STRENGTH = { min: 0.1, max: 1 } as const;
 export const BLOCKED_TILES = { min: 2, max: 5 } as const;
 
 const fail = (msg: string): never => {
@@ -65,6 +69,11 @@ export function checkLevel(level: number) {
 export function checkRadius(radius: number) {
 	if (!(radius >= POINT_RADIUS.min && radius <= POINT_RADIUS.max))
 		fail(`radius must be ${POINT_RADIUS.min}–${POINT_RADIUS.max} tiles`);
+}
+
+export function checkStrength(strength: number | undefined) {
+	if (strength !== undefined && !(strength >= POINT_STRENGTH.min && strength <= POINT_STRENGTH.max))
+		fail(`strength must be ${POINT_STRENGTH.min}–${POINT_STRENGTH.max}`);
 }
 
 export function checkTiles(tiles: { x: number; y: number }[]) {

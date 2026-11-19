@@ -7,8 +7,8 @@
  * - The state (`currentState()`): power, water and air points, blocked tunnels and the
  *   sickness settings. It lives in Convex and changes over time; `#lib/live` keeps it here
  *   with `setState`. Pages that never connect get the starter scenario (read-only).
- * - The models turn the two into what pages show: `conditions.ts` (good or bad power, water
- *   and air per block) and `sickness.ts` (lung-sickness reports per block).
+ * - The models turn the two into what pages show: `conditions.ts` (power, water and air per
+ *   block, graded from the points) and `sickness.ts` (lung-sickness reports per block).
  *
  * Pages read the data through `simulateFloor()`; `snapshot()` dumps it as plain data.
  */
@@ -47,10 +47,10 @@ export interface FloorSimulation {
 	readonly local: { points: StatePoint[]; blockedTunnels: BlockedTunnel[] };
 	/** Every named place on the floor. */
 	readonly places: Place[];
-	/** Good or bad power, water and air per block, and each point's blocks. */
+	/** Power, water and air scores per block, and each point's blocks. */
 	readonly conditions: FloorConditions;
-	/** Room id → bad for that kind (shorthand for `conditions.bad[kind]`). */
-	bad(kind: PointKind): boolean[];
+	/** Room id → score for that kind, 0 (good) to 1 (bad); null for rooms that aren't housing. */
+	score(kind: PointKind): (number | null)[];
 	/** Room id → lung-sickness reports (null for rooms that aren't housing). */
 	readonly sickness: (BlockSickness | null)[];
 	/** Tunnel tiles blocked on this floor ("x,y"). */
@@ -85,7 +85,7 @@ const simulate = perFloorWith((floor: Floor, state: HollowState): FloorSimulatio
 		get conditions() {
 			return conditions();
 		},
-		bad: (kind) => conditions().bad[kind],
+		score: (kind) => conditions().score[kind],
 		get sickness() {
 			return sicknessOf(floor, state.sickness);
 		},
@@ -102,7 +102,7 @@ export const simulateFloor = (floor: Floor): FloorSimulation => simulate(floor, 
 export const sicknessTotals = (floors: Floor[]) =>
 	totals(floors.map((f) => simulateFloor(f).sickness));
 
-/** Residents with bad power, water or air over some floors. */
+/** Residents per power, water or air step over some floors (and how many are at a bad step). */
 export const pointTotals = (floors: Floor[], kind: PointKind) =>
 	conditionTotals(
 		floors.map((f) => ({ floor: f, conditions: simulateFloor(f).conditions })),
@@ -136,7 +136,7 @@ export function snapshot(city: Hollow = getHollow()) {
 				level: level.code,
 				residents: floor.residents,
 				facilities: [...floor.facilities].map(([room, spec]) => ({ room, name: spec.name })),
-				bad: sim.conditions.bad,
+				conditions: sim.conditions.score,
 				sickness: sim.sickness
 			};
 		})

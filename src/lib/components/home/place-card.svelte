@@ -3,6 +3,8 @@
 	import type { Place } from '#lib/hollow/nav.js';
 	import type { FloorSimulation } from '#lib/hollow/simulation.js';
 	import { POINT_INFO, POINT_KINDS } from '#lib/hollow/state.js';
+	import { CONDITION_STEPS, conditionStep } from '#lib/hollow/conditions.js';
+	import StepScale from './step-scale.svelte';
 	import type { BlockSickness } from '#lib/hollow/sickness.js';
 	import { formatCompact, formatCount, formatPercent } from '#lib/hollow/format.js';
 	import SicknessScale from './sickness-scale.svelte';
@@ -98,13 +100,20 @@
 		</p>
 
 		{#if p.kind === 'block'}
-			<div class="flex flex-wrap gap-1.5">
+			<Separator />
+			<dl class="grid grid-cols-[auto_1fr_5.5rem] items-center gap-x-3 gap-y-2 text-xs">
 				{#each POINT_KINDS as k (k)}
-					{@const info = POINT_INFO[k]}
-					{@const bad = sim.bad(k)[p.room.id]}
-					{@render pill(bad ? info.bad : info.good, bad ? info.color : 'var(--success)')}
+					{@const score = sim.score(k)[p.room.id]}
+					{#if score !== null}
+						{@const step = conditionStep(score)}
+						{@const st = CONDITION_STEPS[k][step]}
+						<dt class="font-medium text-foreground">{POINT_INFO[k].label}</dt>
+						<dd><StepScale steps={CONDITION_STEPS[k]} active={step} labels={false} /></dd>
+						<dd class="text-right">{@render pill(st.label, st.color)}</dd>
+					{/if}
 				{/each}
-			</div>
+			</dl>
+			<p class="-mt-1 text-[10px] text-muted-foreground">Simulated readings</p>
 		{/if}
 
 		{#if sickness}

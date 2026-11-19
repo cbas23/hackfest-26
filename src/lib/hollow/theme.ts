@@ -32,8 +32,7 @@ export type Token =
 	| 'map-muted-roof'
 	| 'map-lens-tunnel'
 	| `map-sick-${1 | 2 | 3 | 4 | 5}`
-	| 'map-good'
-	| `map-${'power' | 'water' | 'air'}-bad`
+	| `map-${'power' | 'water' | 'air'}-${1 | 2 | 3 | 4 | 5}`
 	| `map-tunnels-${'road' | 'wall' | 'room-roof' | 'room-wall' | 'blocked'}`
 	| 'map-route'
 	| 'map-route-border'

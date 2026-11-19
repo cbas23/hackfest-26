@@ -10,7 +10,8 @@
 	import ZapIcon from '@lucide/svelte/icons/zap';
 	import WaypointsIcon from '@lucide/svelte/icons/waypoints';
 	import { POINT_INFO } from '#lib/hollow/state.js';
-	import StateLegend from './state-legend.svelte';
+	import { CONDITION_STEPS } from '#lib/hollow/conditions.js';
+	import StepScale from './step-scale.svelte';
 	import TunnelLegend from './tunnel-legend.svelte';
 	import HomeAddress from './home-address.svelte';
 	import SicknessScale from './sickness-scale.svelte';
@@ -32,7 +33,7 @@
 		{
 			id: 'power',
 			title: 'Power',
-			summary: 'Blocks with and without power',
+			summary: 'Grid supply by block',
 			icon: ZapIcon,
 			color: POINT_INFO.power.color,
 			content: powerInfo
@@ -40,7 +41,7 @@
 		{
 			id: 'water',
 			title: 'Water',
-			summary: 'Good and bad tap water by block',
+			summary: 'Tap-water quality by block',
 			icon: DropletsIcon,
 			color: POINT_INFO.water.color,
 			content: waterInfo
@@ -48,7 +49,7 @@
 		{
 			id: 'air',
 			title: 'Air',
-			summary: 'Good and bad air by block',
+			summary: 'Air quality by block',
 			icon: FanIcon,
 			color: POINT_INFO.air.color,
 			content: airInfo
@@ -73,19 +74,36 @@
 	];
 </script>
 
+{#snippet scale(label: string, kind: 'power' | 'water' | 'air')}
+	<div class="flex flex-col gap-1.5 text-xs">
+		<span>{label}</span>
+		<StepScale steps={CONDITION_STEPS[kind]} />
+		<p class="text-[10px]">Simulated readings</p>
+	</div>
+{/snippet}
+
 {#snippet powerInfo()}
-	<p>Each block is coloured by whether it has power. Outages cover round areas of the level.</p>
-	<StateLegend kind="power" />
+	<p>
+		Each block is coloured by how steady its power is. Grid faults spread along the tunnels' cables,
+		so they reach the blocks their tunnels connect; the darker levels run on a weaker grid.
+	</p>
+	{@render scale('Power at the block', 'power')}
 {/snippet}
 
 {#snippet waterInfo()}
-	<p>Each block is coloured by whether its tap water is good or bad to drink.</p>
-	<StateLegend kind="water" />
+	<p>
+		Each block is coloured by the health of its tap water. Contamination spreads along the pipes in
+		the tunnels, fading the further it travels; the mains get older further down.
+	</p>
+	{@render scale('Tap-water health', 'water')}
 {/snippet}
 
 {#snippet airInfo()}
-	<p>Each block is coloured by whether its air is good or bad to breathe.</p>
-	<StateLegend kind="air" />
+	<p>
+		Each block is coloured by the air its residents breathe. Bad air settles over whole districts,
+		through the rock as well as the tunnels, and the supply thins on deeper levels.
+	</p>
+	{@render scale('Air at the block', 'air')}
 {/snippet}
 
 {#snippet sicknessInfo()}

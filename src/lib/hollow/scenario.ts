@@ -3,8 +3,8 @@
  * `scenario` stream). The control center loads it into Convex ("Load starter scenario"), and
  * pages that never connect to Convex use it as their read-only state.
  *
- * - Points: a few power, water and air points per level, centred on housing blocks; more
- *   and wider on the darker, deeper levels.
+ * - Points: a few power, water and air points per level, centred on housing blocks, each
+ *   with its own reach and strength; more and further-reaching on the darker, deeper levels.
  * - Blocked tunnels: a few short stretches of tunnel per level.
  * - Sickness: the default settings.
  * Tuning: `SIM.scenario`.
@@ -91,13 +91,14 @@ function floorScenario(floor: Floor, citySeed: number): Omit<Scenario, 'sickness
 		const count = Math.max(C.points.min, Math.round(C.points.max * dark * (0.4 + rand() * 0.6)));
 		for (let i = 0; i < count && housing.length; i++) {
 			const r = housing[Math.floor(rand() * housing.length)];
-			const radius = Math.round(spread(C.pointRadius, rand()) * (0.7 + depth * 0.6));
+			const radius = Math.round(spread(C.pointRadius[kind], rand()) * (0.7 + depth * 0.6));
 			points.push({
 				kind,
 				level: floor.index,
 				x: Math.round(r.x + r.w / 2),
 				y: Math.round(r.y + r.h / 2),
-				radius: Math.min(POINT_RADIUS.max, Math.max(POINT_RADIUS.min, radius))
+				radius: Math.min(POINT_RADIUS.max, Math.max(POINT_RADIUS.min, radius)),
+				strength: Math.round(spread(C.pointStrength, rand()) * 100) / 100
 			});
 		}
 	}

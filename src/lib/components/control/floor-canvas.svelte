@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { FACILITY_INFO } from '#lib/hollow/data.js';
+	import { CONDITION_STEPS, conditionStep, tunnelWalk } from '#lib/hollow/conditions.js';
 	import { POINT_INFO, POINT_KINDS, type PointKind, type Tile } from '#lib/hollow/state.js';
 	import { nearestRoad, tunnelRun } from '#lib/hollow/scenario.js';
 	import { SICK_STEPS, sickStep, sicknessOf } from '#lib/hollow/sickness.js';
@@ -85,7 +86,8 @@
 		const col = {
 			road: cssHex('var(--muted-foreground)'),
 			room: cssHex('var(--muted-foreground)'),
-			blocked: '#f59e0b'
+			blocked: '#f59e0b',
+			bg: cssHex('var(--background)')
 		};
 		const tab = control.tab;
 		const kind = isPointTab(tab) ? tab : null;
@@ -95,9 +97,10 @@
 		const sickness =
 			tab === 'sickness' ? sicknessOf(floor, control.sicknessDraft ?? sim.state.sickness) : null;
 		const steps = SICK_STEPS.map((st) => cssHex(st.color));
-		/** Housing that is bad for the open kind (power on the tunnels tab). */
-		const bad = sim.bad(kind ?? 'power');
-		const badColor = kindColor[kind ?? 'power'];
+		/** Housing by the open kind's steps (sickness on its tab, power on the tunnels tab). */
+		const graded = kind ?? 'power';
+		const score = sim.score(graded);
+		const stepColors = CONDITION_STEPS[graded].map((st) => cssHex(st.color));
 
 		// Tunnels.
 		ctx.fillStyle = col.road;
@@ -123,9 +126,10 @@
 			if (sickness?.[r.id]) {
 				ctx.globalAlpha = 0.95;
 				ctx.fillStyle = steps[sickStep(sickness[r.id]!.score)];
-			} else if (!sickness && bad[r.id]) {
-				ctx.globalAlpha = 0.6;
-				ctx.fillStyle = badColor;
+			} else if (!sickness && score[r.id] !== null && (kind || conditionStep(score[r.id]!) >= 3)) {
+				// Point tabs: every step; the tunnels tab: only bad power, faintly.
+				ctx.globalAlpha = kind ? 0.95 : 0.55;
+				ctx.fillStyle = stepColors[conditionStep(score[r.id]!)];
 			} else {
 				ctx.globalAlpha = floor.residents[r.id] > 0 ? 0.45 : 0.25;
 				ctx.fillStyle = col.room;
@@ -134,25 +138,30 @@
 		}
 		ctx.globalAlpha = 1;
 
-		// Points: the open kind's bold, the others faint and dashed.
+		// Points: the open kind's bold (air with its radius), the others small and faint.
 		for (const p of sim.local.points) {
 			const mine = p.kind === kind;
-			ctx.strokeStyle = kindColor[p.kind];
+			const cx = px(p.x + 0.5);
+			const cy = py(p.y + 0.5);
 			ctx.globalAlpha = mine ? 1 : 0.35;
-			ctx.lineWidth = mine ? 1.75 : 1;
-			ctx.setLineDash(mine ? [] : [4, 4]);
-			ctx.beginPath();
-			ctx.arc(px(p.x + 0.5), py(p.y + 0.5), p.radius * s, 0, Math.PI * 2);
-			ctx.stroke();
-			if (mine) {
-				ctx.fillStyle = kindColor[p.kind];
+			if (mine && POINT_INFO[p.kind].spread === 'area') {
+				ctx.strokeStyle = kindColor[p.kind];
+				ctx.lineWidth = 1.25;
+				ctx.setLineDash([4, 4]);
 				ctx.beginPath();
-				ctx.arc(px(p.x + 0.5), py(p.y + 0.5), 3, 0, Math.PI * 2);
-				ctx.fill();
+				ctx.arc(cx, cy, p.radius * s, 0, Math.PI * 2);
+				ctx.stroke();
+				ctx.setLineDash([]);
 			}
+			ctx.fillStyle = kindColor[p.kind];
+			ctx.strokeStyle = col.bg;
+			ctx.lineWidth = 2;
+			ctx.beginPath();
+			ctx.arc(cx, cy, mine ? 3 + 3 * (p.strength ?? 1) : 2.5, 0, Math.PI * 2);
+			ctx.fill();
+			if (mine) ctx.stroke();
 		}
 		ctx.globalAlpha = 1;
-		ctx.setLineDash([]);
 
 		// Blocked tunnels: the tiles, plus a marker so a 2-tile stretch is findable.
 		ctx.fillStyle = col.blocked;
@@ -168,7 +177,7 @@
 
 		// What a click would do here.
 		if (hover) {
-			if (kind) {
+			if (kind && POINT_INFO[kind].spread === 'area') {
 				ctx.strokeStyle = kindColor[kind];
 				ctx.setLineDash([3, 3]);
 				ctx.lineWidth = 1.5;
@@ -176,6 +185,20 @@
 				ctx.arc(px(hover.x + 0.5), py(hover.y + 0.5), control.radius * s, 0, Math.PI * 2);
 				ctx.stroke();
 				ctx.setLineDash([]);
+			} else if (kind) {
+				// Tunnel kinds: light up the tunnels a new point here would reach.
+				const walk = tunnelWalk(floor, hover.x, hover.y);
+				if (walk) {
+					const { width } = floor.map;
+					ctx.fillStyle = kindColor[kind];
+					ctx.globalAlpha = 0.55;
+					walk.dist.forEach((d, i) => {
+						if (d < 0 || d > control.radius) return;
+						const x = i % width;
+						ctx.fillRect(px(x), py((i - x) / width), s, s);
+					});
+					ctx.globalAlpha = 1;
+				}
 			} else if (tab === 'tunnels') {
 				ctx.globalAlpha = 0.7;
 				ctx.fillStyle = col.blocked;

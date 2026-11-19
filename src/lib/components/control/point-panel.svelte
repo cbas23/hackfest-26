@@ -1,21 +1,24 @@
 <script lang="ts">
-	import { POINT_INFO, POINT_RADIUS, type PointKind } from '#lib/hollow/state.js';
-	import { formatCompact } from '#lib/hollow/format.js';
+	import { CONDITION_STEPS } from '#lib/hollow/conditions.js';
+	import { POINT_INFO, POINT_RADIUS, POINT_STRENGTH, type PointKind } from '#lib/hollow/state.js';
+	import { formatCompact, formatPercent } from '#lib/hollow/format.js';
 	import { getHollow, simulateFloor } from '#lib/hollow/simulation.js';
 	import { live } from '#lib/live/state.svelte.js';
 	import { Slider } from '#lib/components/ui/slider/index.js';
+	import StepScale from '#lib/components/home/step-scale.svelte';
 	import StateRow from './state-row.svelte';
-	import { control, removePoint, setPointRadius } from './control-state.svelte.js';
+	import { control, removePoint, updatePoint } from './control-state.svelte.js';
 
 	let { kind }: { kind: PointKind } = $props();
 
 	const hollow = getHollow();
 	const info = $derived(POINT_INFO[kind]);
+	const reachLabel = $derived(info.spread === 'tunnels' ? 'Reach along tunnels' : 'Radius');
 	const sim = $derived.by(() => {
 		void live.version;
 		return simulateFloor(hollow.floor(control.level));
 	});
-	/** This kind's points on the level, with the blocks and residents they cover. */
+	/** This kind's points on the level, with the blocks and residents they reach. */
 	const rows = $derived(
 		sim.conditions.areas
 			.filter((a) => a.point.kind === kind)
@@ -24,64 +27,107 @@
 				residents: a.blocks.reduce((s, b) => s + sim.floor.residents[b], 0)
 			}))
 	);
-	/** Radius being dragged on an existing point, before it's saved. */
-	const dragging = $state<Record<string, number>>({});
+	/** Values being dragged on an existing point, before they're saved. */
+	const dragging = $state<Record<string, { radius?: number; strength?: number }>>({});
+	const pct = (v: number) => formatPercent(v);
 </script>
 
-<div class="flex flex-col gap-3">
-	<p class="text-xs text-muted-foreground">
-		Click the map to place a {info.bad.toLowerCase()} point. Every housing block inside its circle has
-		{info.bad.toLowerCase()}; everywhere else is {info.good.toLowerCase()}.
-	</p>
-	<label class="flex flex-col gap-2 text-xs">
+{#snippet dial(
+	label: string,
+	value: number,
+	text: string,
+	range: { min: number; max: number },
+	step: number,
+	onchange: (v: number) => void,
+	oncommit?: (v: number) => void
+)}
+	<label class="flex flex-col gap-1.5">
 		<span class="flex justify-between"
-			><span>New point radius</span><span class="tabular-nums">{control.radius} tiles</span></span
+			><span>{label}</span><span class="tabular-nums">{text}</span></span
 		>
 		<Slider
 			type="single"
-			bind:value={control.radius}
-			min={POINT_RADIUS.min}
-			max={POINT_RADIUS.max}
-			step={1}
+			{value}
+			onValueChange={onchange}
+			onValueCommit={oncommit}
+			min={range.min}
+			max={range.max}
+			{step}
 		/>
 	</label>
+{/snippet}
+
+<div class="flex flex-col gap-3 text-xs">
+	<p class="text-muted-foreground">
+		Click the map to place a {info.point.toLowerCase()}. It pushes the blocks it reaches towards
+		bad, strongest at the point and fading out
+		{info.spread === 'tunnels'
+			? 'along the tunnels, so it only reaches what its tunnels connect.'
+			: 'over the area around it.'}
+		Overlapping points compound.
+	</p>
+	<StepScale steps={CONDITION_STEPS[kind]} />
+	{@render dial(
+		`New point: ${reachLabel.toLowerCase()}`,
+		control.radius,
+		`${control.radius} tiles`,
+		POINT_RADIUS,
+		1,
+		(v) => (control.radius = v)
+	)}
+	{@render dial(
+		'New point: strength',
+		control.strength,
+		pct(control.strength),
+		POINT_STRENGTH,
+		0.05,
+		(v) => (control.strength = v)
+	)}
 
 	{#if rows.length}
 		<ul class="flex flex-col gap-1.5">
 			{#each rows as { point, blocks, residents } (point.id)}
+				{@const d = dragging[point.id] ?? {}}
+				{@const radius = d.radius ?? point.radius}
+				{@const strength = d.strength ?? point.strength ?? 1}
+				{@const commit = async (patch: { radius?: number; strength?: number }) => {
+					await updatePoint(point.id, patch);
+					delete dragging[point.id];
+				}}
 				<StateRow
-					title="{info.bad} · {point.x}, {point.y}"
+					title="{info.point} · {point.x}, {point.y}"
 					sub={blocks.length
-						? `${blocks.length} blocks · ${formatCompact(residents)} residents`
-						: 'No housing inside'}
+						? `${blocks.length} blocks · ${formatCompact(residents)} residents affected`
+						: 'Reaches no housing'}
 					color={info.color}
 					onremove={() => removePoint(point.id)}
 				>
-					<label class="flex flex-col gap-1.5">
-						<span class="flex justify-between text-muted-foreground"
-							><span>Radius</span><span class="tabular-nums"
-								>{dragging[point.id] ?? point.radius} tiles</span
-							></span
-						>
-						<Slider
-							type="single"
-							value={dragging[point.id] ?? point.radius}
-							onValueChange={(v) => (dragging[point.id] = v)}
-							onValueCommit={async (v) => {
-								await setPointRadius(point.id, v);
-								delete dragging[point.id];
-							}}
-							min={POINT_RADIUS.min}
-							max={POINT_RADIUS.max}
-							step={1}
-						/>
-					</label>
+					<div class="flex flex-col gap-2 text-muted-foreground">
+						{@render dial(
+							reachLabel,
+							radius,
+							`${radius} tiles`,
+							POINT_RADIUS,
+							1,
+							(v) => (dragging[point.id] = { ...d, radius: v }),
+							(v) => commit({ radius: v })
+						)}
+						{@render dial(
+							'Strength',
+							strength,
+							pct(strength),
+							POINT_STRENGTH,
+							0.05,
+							(v) => (dragging[point.id] = { ...d, strength: v }),
+							(v) => commit({ strength: v })
+						)}
+					</div>
 				</StateRow>
 			{/each}
 		</ul>
 	{:else}
-		<p class="rounded-md border border-dashed p-3 text-center text-xs text-muted-foreground">
-			No {info.label.toLowerCase()} points on this level: {info.good.toLowerCase()} everywhere.
+		<p class="rounded-md border border-dashed p-3 text-center text-muted-foreground">
+			No {info.point.toLowerCase()} points on this level.
 		</p>
 	{/if}
 </div>

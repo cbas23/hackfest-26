@@ -141,12 +141,25 @@
 	--map-sick-3: color-mix(in oklch, var(--primary) 65%, var(--border));
 	--map-sick-4: var(--primary);
 	--map-sick-5: color-mix(in oklch, var(--primary) 55%, var(--chart-2));
-	/* Power, water and air lenses: good blocks recede to a faint green, bad ones glow in their
-	   kind's colour (also used for their notices and control-center points). */
-	--map-good: color-mix(in oklch, var(--success) 18%, var(--border));
-	--map-power-bad: oklch(0.64 0.21 25);
-	--map-water-bad: oklch(0.7 0.27 330);
-	--map-air-bad: oklch(0.72 0.15 62);
+	/* Power, water and air lenses, five steps from good (receding) to bad (glowing). */
+	/* Power: faint, then lamp yellow, amber, orange, and a cut-off red. */
+	--map-power-1: color-mix(in oklch, oklch(0.85 0.15 95) 8%, var(--border));
+	--map-power-2: color-mix(in oklch, oklch(0.85 0.15 95) 45%, var(--border));
+	--map-power-3: oklch(0.8 0.16 85);
+	--map-power-4: oklch(0.68 0.19 50);
+	--map-power-5: oklch(0.58 0.22 25);
+	/* Water, clean → toxic: slate, clouding lavender, violet, then a toxic fuchsia glow. */
+	--map-water-1: color-mix(in oklch, oklch(0.6 0.12 295) 8%, var(--border));
+	--map-water-2: color-mix(in oklch, oklch(0.64 0.13 295) 55%, var(--border));
+	--map-water-3: oklch(0.6 0.16 297);
+	--map-water-4: oklch(0.52 0.23 308);
+	--map-water-5: oklch(0.7 0.27 330);
+	/* Air, clean → hazardous: faint aqua, sage, then dusty ochre going to a smoky rust. */
+	--map-air-1: color-mix(in oklch, oklch(0.75 0.1 190) 10%, var(--border));
+	--map-air-2: color-mix(in oklch, oklch(0.72 0.08 150) 45%, var(--border));
+	--map-air-3: oklch(0.72 0.1 95);
+	--map-air-4: oklch(0.68 0.14 62);
+	--map-air-5: oklch(0.6 0.2 40);
 	/* Tunnels lens: a slate-grey network, darker than the usual one, over see-through
 	   chambers; blocked sections are painted red. */
 	--map-tunnels-road: color-mix(
