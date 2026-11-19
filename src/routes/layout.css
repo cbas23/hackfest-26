@@ -141,6 +141,25 @@
 	--map-sick-3: color-mix(in oklch, var(--primary) 65%, var(--border));
 	--map-sick-4: var(--primary);
 	--map-sick-5: color-mix(in oklch, var(--primary) 55%, var(--chart-2));
+	/* Water health lens, clean → toxic: slate, clouding lavender, violet, then a toxic fuchsia glow. */
+	--map-water-1: color-mix(in oklch, oklch(0.6 0.12 295) 8%, var(--border));
+	--map-water-2: color-mix(in oklch, oklch(0.64 0.13 295) 55%, var(--border));
+	--map-water-3: oklch(0.6 0.16 297);
+	--map-water-4: oklch(0.52 0.23 308);
+	--map-water-5: oklch(0.7 0.27 330);
+	/* Airflow lens, diverging: still air is dusty ochre, the middle recedes, strong flow is bright aqua. */
+	--map-air-1: oklch(0.66 0.14 62);
+	--map-air-2: oklch(0.6 0.075 72);
+	--map-air-3: color-mix(in oklch, oklch(0.72 0.06 190) 10%, var(--border));
+	--map-air-4: color-mix(in oklch, oklch(0.76 0.12 192) 62%, var(--border));
+	--map-air-5: oklch(0.87 0.15 178);
+	/* Tunnels lens: the network glows yellow over darkened chambers; blocked tiles flare red. */
+	--map-tunnels-road: oklch(0.83 0.16 92);
+	--map-tunnels-wall: oklch(0.64 0.13 84);
+	--map-tunnels-room-roof: color-mix(in oklch, var(--background) 60%, black);
+	--map-tunnels-room-wall: color-mix(in oklch, var(--background) 40%, black);
+	--map-tunnels-blocked: var(--destructive);
+	--map-tunnels-blocked-wall: color-mix(in oklch, var(--destructive) 55%, black);
 	/* Routes, hover/selection outlines and the radar sweep. */
 	/* Alerts lens: blackouts sink to near-black with a red edge; bad air glows teal → red. */
 	--map-alert-dark-roof: color-mix(in oklch, var(--destructive) 12%, black);

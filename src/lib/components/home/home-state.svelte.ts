@@ -2,7 +2,7 @@ import type { MapLens } from '#lib/hollow/mapStyle.js';
 import type { AlertKind } from '#lib/hollow/alerts.js';
 
 /** Ids of the sidebar's data-layer cards (see `LAYERS` in app-sidebar.svelte). */
-export type LayerId = 'alerts' | 'sickness';
+export type LayerId = 'alerts' | 'sickness' | 'water' | 'airflow' | 'tunnels';
 
 /** UI state shared between the sidebar and the map. */
 export const home = $state({
@@ -19,7 +19,10 @@ export const home = $state({
 /** How each data-layer card repaints the map while it is open (null: it doesn't). */
 export const SECTION_LENS: Record<LayerId, MapLens | null> = {
 	alerts: 'alerts',
-	sickness: 'sickness'
+	sickness: 'sickness',
+	water: 'water',
+	airflow: 'airflow',
+	tunnels: 'tunnels'
 };
 
 /** The lens of the open card, if any (the alerts card narrows it by its filter). */

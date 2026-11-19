@@ -1,12 +1,21 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, type Snippet } from 'svelte';
 	import type { Room } from '#lib/tunnels/generate.js';
 	import { LEVELS } from '#lib/hollow/data.js';
 	import { formatCompact, formatCount, formatDepth, formatPercent } from '#lib/hollow/format.js';
 	import { placeCentre, placeColor, type Place, type PlaceKind } from '#lib/hollow/nav.js';
 	import { createHollowMap, type HollowMap, type Pick } from '#lib/hollow/hollowMap.js';
 	import { STATUS_INFO, type Status } from '#lib/hollow/sensors.js';
-	import { getHollow, sicknessTotals, simulateFloor } from '#lib/hollow/simulation.js';
+	import {
+		airflowTotals,
+		blockedTotals,
+		getHollow,
+		sicknessTotals,
+		simulateFloor,
+		waterTotals
+	} from '#lib/hollow/simulation.js';
+	import { WATER_STEPS } from '#lib/hollow/water.js';
+	import { AIR_STEPS } from '#lib/hollow/airflow.js';
 	import { connectLive, live } from '#lib/live/events.svelte.js';
 	import { radarOverlay } from '#lib/hollow/scene/radar.js';
 	import { floorBounds, type Floor } from '#lib/hollow/world.js';
@@ -27,6 +36,8 @@
 	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
 	import SirenIcon from '@lucide/svelte/icons/siren';
 	import SicknessScale from './sickness-scale.svelte';
+	import StepScale from './step-scale.svelte';
+	import TunnelLegend from './tunnel-legend.svelte';
 	import { home, openLens, registerMapNav } from './home-state.svelte.js';
 	import { bindMapKeys, KEY_HINTS, ZOOM_STEP } from './map-keys.js';
 	import { cn } from '#lib/utils.js';
@@ -270,6 +281,19 @@
 	const sickTotals = $derived.by(() => {
 		void live.version;
 		return lens === 'sickness' ? sicknessTotals(overview ? allFloors() : [floor]) : null;
+	});
+	/** Headline numbers for the water, airflow and tunnels lenses. */
+	const waterNow = $derived.by(() => {
+		void live.version;
+		return lens === 'water' ? waterTotals(overview ? allFloors() : [floor]) : null;
+	});
+	const airNow = $derived.by(() => {
+		void live.version;
+		return lens === 'airflow' ? airflowTotals(overview ? allFloors() : [floor]) : null;
+	});
+	const blockedNow = $derived.by(() => {
+		void live.version;
+		return lens === 'tunnels' ? blockedTotals(overview ? allFloors() : [floor]) : null;
 	});
 	// ── Alerts lens ─────────────────────────────────────────────────────────
 	const alertList = $derived.by(() => {
@@ -689,22 +713,65 @@
 		{/key}
 	{/if}
 
-	{#if sickTotals}
+	{#snippet lensPanel(title: string, body: Snippet)}
 		<div
 			class="absolute top-16 left-4 z-10 flex w-56 flex-col gap-1.5 rounded-lg border bg-background/90 p-3 text-xs backdrop-blur md:top-4"
 		>
 			<div class="flex items-center justify-between">
-				<span class="font-semibold">Lung sickness</span>
+				<span class="font-semibold">{title}</span>
 				<span class="text-muted-foreground">{overview ? 'All levels' : level.code}</span>
 			</div>
+			{@render body()}
+		</div>
+	{/snippet}
+
+	{#if sickTotals}
+		{#snippet sickBody()}
 			<SicknessScale />
 			<p class="text-muted-foreground">
 				<span class="font-semibold text-foreground tabular-nums"
-					>{formatPercent(sickTotals.share)}</span
+					>{formatPercent(sickTotals!.share)}</span
 				>
-				of {formatCount(sickTotals.reported)} reported residents sick
+				of {formatCount(sickTotals!.reported)} reported residents sick
 			</p>
-		</div>
+		{/snippet}
+		{@render lensPanel('Lung sickness', sickBody)}
+	{:else if waterNow}
+		{#snippet waterBody()}
+			<StepScale steps={WATER_STEPS} />
+			<p class="text-muted-foreground">
+				<span class="font-semibold text-foreground tabular-nums"
+					>{formatPercent(waterNow!.share)}</span
+				>
+				of {formatCount(waterNow!.residents)} residents on unsafe or toxic water
+			</p>
+		{/snippet}
+		{@render lensPanel('Water health', waterBody)}
+	{:else if airNow}
+		{#snippet airBody()}
+			<StepScale steps={AIR_STEPS} />
+			<p class="text-muted-foreground">
+				<span class="font-semibold text-foreground tabular-nums"
+					>{formatPercent(airNow!.share)}</span
+				>
+				of {formatCount(airNow!.residents)} residents in still or weak air
+			</p>
+		{/snippet}
+		{@render lensPanel('Air flow', airBody)}
+	{:else if blockedNow}
+		{#snippet tunnelBody()}
+			<TunnelLegend class="text-muted-foreground" />
+			<p class="text-muted-foreground">
+				{#if blockedNow!.count}
+					<span class="font-semibold text-foreground tabular-nums">{blockedNow!.count}</span>
+					blocked tunnel{blockedNow!.count === 1 ? '' : 's'} ·
+					<span class="tabular-nums">{blockedNow!.tiles}</span> tiles closed
+				{:else}
+					No blocked tunnels
+				{/if}
+			</p>
+		{/snippet}
+		{@render lensPanel('Tunnels', tunnelBody)}
 	{/if}
 
 	<!-- Map controls -->

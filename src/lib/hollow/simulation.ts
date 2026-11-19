@@ -8,7 +8,8 @@
  *   the sickness settings. They live in Convex and change over time; `#lib/live` keeps them
  *   here with `setEvents`. Pages that never connect get the starter scenario (read-only).
  * - The models turn the two into what pages show: `power.ts` (blackouts), `sensors.ts`
- *   (air, water and the stress model), `impact.ts`, `sickness.ts`, `alerts.ts`.
+ *   (air, water and the stress model), `impact.ts`, `sickness.ts`, `water.ts` (tap-water
+ *   health), `airflow.ts`, `alerts.ts`.
  *
  * Pages read the data through `simulateFloor()`; `snapshot()` dumps it as plain data.
  */
@@ -21,6 +22,8 @@ import { powerOn, type FloorPower } from './power.js';
 import { starterScenario, withLocalIds } from './scenario.js';
 import { facilityStatus, type FacilityStatus } from './sensors.js';
 import { sicknessOf, sicknessTotals as totals, type BlockSickness } from './sickness.js';
+import { waterHealthOf, waterTotals as wTotals, type BlockWater } from './water.js';
+import { airflowOf, airflowTotals as aTotals, type BlockAirflow } from './airflow.js';
 import { createHollow, perFloorWith, type Floor, type Hollow } from './world.js';
 
 export { SIM, streamSeed, type SimStream } from './simConfig.js';
@@ -60,6 +63,10 @@ export interface FloorSimulation {
 	readonly litShare: number;
 	/** Room id → lung-sickness reports (null for rooms that aren't housing). */
 	readonly sickness: (BlockSickness | null)[];
+	/** Room id → tap-water health (null for rooms that aren't housing). */
+	readonly water: (BlockWater | null)[];
+	/** Room id → airflow (null for rooms that aren't housing). */
+	readonly airflow: (BlockAirflow | null)[];
 	/** Sensor readings of a place on this floor, or null if it has no sensors. */
 	status(place: Place): FacilityStatus | null;
 	/** What a monitored facility's status means for the residents who depend on it. */
@@ -121,6 +128,12 @@ const simulate = perFloorWith((floor: Floor, events: HollowEvents): FloorSimulat
 		get sickness() {
 			return sicknessOf(floor, events.sickness);
 		},
+		get water() {
+			return waterHealthOf(floor, events.waterCuts);
+		},
+		get airflow() {
+			return airflowOf(floor, events.airQuality);
+		},
 		status,
 		impact(place) {
 			if (!impacts.has(place.room.id))
@@ -144,6 +157,26 @@ export const simulateFloor = (floor: Floor): FloorSimulation => simulate(floor, 
 export const sicknessTotals = (floors: Floor[]) =>
 	totals(floors.map((f) => simulateFloor(f).sickness));
 
+/** Tap-water health summed over some floors. */
+export const waterTotals = (floors: Floor[]) =>
+	wTotals(floors.map((f) => ({ floor: f, water: simulateFloor(f).water })));
+
+/** Airflow summed over some floors. */
+export const airflowTotals = (floors: Floor[]) =>
+	aTotals(floors.map((f) => ({ floor: f, airflow: simulateFloor(f).airflow })));
+
+/** Active blocked tunnels over some floors: how many, and how many tiles they close. */
+export function blockedTotals(floors: Floor[]) {
+	let count = 0;
+	let tiles = 0;
+	for (const f of floors) {
+		const sim = simulateFloor(f);
+		count += sim.local.blockedTunnels.filter(isActive).length;
+		tiles += sim.blocked.size;
+	}
+	return { count, tiles };
+}
+
 /**
  * Every simulated number for a city as plain, JSON-ready data. Builds every floor, so it is
  * slow the first time.
@@ -161,6 +194,8 @@ export function snapshot(city: Hollow = getHollow()) {
 				residents: floor.residents,
 				facilities: [...floor.facilities].map(([room, spec]) => ({ room, name: spec.name })),
 				sickness: sim.sickness,
+				water: sim.water,
+				airflow: sim.airflow,
 				alerts: sim.alerts.alerts.map((a) => ({ ...a, place: a.place?.key })),
 				sensors: sim.places.flatMap((place) => {
 					const status = sim.status(place);

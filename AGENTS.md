@@ -61,7 +61,8 @@ Layers, bottom to top:
      the lore go on the facility in `data.ts` (`readings`).
    - The models: `nav.ts` (places, `placeColor`, routes), `power.ts` (blackouts → dark blocks),
      `sensors.ts` (Detect: air/water from their events, clinics/plants from the stress model),
-     `impact.ts` (Assess), `sickness.ts` (hotspots from the shared `SicknessSettings`),
+     `impact.ts` (Assess), `sickness.ts` (hotspots from the shared `SicknessSettings`), `water.ts` / `airflow.ts`
+     (per-block tap-water health and airflow from service areas and the air/water events),
      `alerts.ts`, `response.ts` (Respond), `scenario.ts` (the starter scenario and tunnel-run
      helpers); plus `format.ts` (number/depth formats for the UI)
    - `mapStyle.ts` / `theme.ts`: palettes. All colours, including the shaft/facility/status

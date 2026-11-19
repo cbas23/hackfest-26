@@ -9,6 +9,13 @@
 	import LayersIcon from '@lucide/svelte/icons/layers';
 	import WindIcon from '@lucide/svelte/icons/wind';
 	import SirenIcon from '@lucide/svelte/icons/siren';
+	import DropletsIcon from '@lucide/svelte/icons/droplets';
+	import FanIcon from '@lucide/svelte/icons/fan';
+	import WaypointsIcon from '@lucide/svelte/icons/waypoints';
+	import { WATER_STEPS } from '#lib/hollow/water.js';
+	import { AIR_STEPS } from '#lib/hollow/airflow.js';
+	import StepScale from './step-scale.svelte';
+	import TunnelLegend from './tunnel-legend.svelte';
 	import { STATUS_INFO } from '#lib/hollow/sensors.js';
 	import AlertList from './alert-list.svelte';
 	import SicknessScale from './sickness-scale.svelte';
@@ -47,6 +54,30 @@
 			// The top of the sickness scale.
 			color: SICK_STEPS[SICK_STEPS.length - 1].color,
 			content: sicknessInfo
+		},
+		{
+			id: 'water',
+			title: 'Water health',
+			summary: 'Tap-water quality by block',
+			icon: DropletsIcon,
+			color: WATER_STEPS[3].color,
+			content: waterInfo
+		},
+		{
+			id: 'airflow',
+			title: 'Air flow',
+			summary: 'Ventilation reaching each block',
+			icon: FanIcon,
+			color: AIR_STEPS[AIR_STEPS.length - 1].color,
+			content: airflowInfo
+		},
+		{
+			id: 'tunnels',
+			title: 'Tunnels',
+			summary: 'The network and blocked passages',
+			icon: WaypointsIcon,
+			color: 'var(--map-tunnels-road)',
+			content: tunnelsInfo
 		}
 	];
 </script>
@@ -65,6 +96,39 @@
 		<SicknessScale />
 		<p class="text-[10px]">Simulated reports</p>
 	</div>
+{/snippet}
+
+{#snippet waterInfo()}
+	<p>
+		Each block is coloured by the health of its tap water. Water worsens along long pipe runs from
+		its recycler, around leaky mains and further down; a failing recycler taints every block it
+		serves.
+	</p>
+	<div class="flex flex-col gap-1.5 text-xs">
+		<span>Tap-water health</span>
+		<StepScale steps={WATER_STEPS} />
+		<p class="text-[10px]">Simulated readings</p>
+	</div>
+{/snippet}
+
+{#snippet airflowInfo()}
+	<p>
+		Each block is coloured by how much fresh air reaches it. Flow is strongest next to a ventilation
+		plant, fades along the tunnels, thins on deeper levels and picks up drafts near the shafts.
+	</p>
+	<div class="flex flex-col gap-1.5 text-xs">
+		<span>Air flow at the block</span>
+		<StepScale steps={AIR_STEPS} />
+		<p class="text-[10px]">Simulated readings</p>
+	</div>
+{/snippet}
+
+{#snippet tunnelsInfo()}
+	<p>
+		The tunnel network stands out over darkened chambers. Blocked stretches glow red where they
+		can't be passed.
+	</p>
+	<TunnelLegend class="text-muted-foreground" />
 {/snippet}
 
 {#snippet levelButton(v: number | 'all', code: string, name: string, meta: string)}

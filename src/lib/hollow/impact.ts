@@ -75,24 +75,35 @@ const indexFloor = perFloor((floor: Floor): FloorIndex => {
 	return { places: placesOn(floor), sector, sectorPopulation, areas: new Map() };
 });
 
+/** Who serves each tunnel tile for one facility kind, and how far it is from its door. */
+export interface ServiceReach {
+	/** Tile index (y * width + x) → serving facility's room id, or -1 (unreachable). */
+	owner: Int32Array;
+	/** Tile index → walking distance in tiles from that facility's door (-1: unreachable). */
+	dist: Int32Array;
+	width: number;
+}
+
+const reachCache = perFloor(() => new Map<PlaceKind, ServiceReach>());
+
 /**
- * Split a floor's housing between all facilities of one kind: a multi-source
- * breadth-first search over tunnel tiles from every facility's door, so each block
- * goes to whichever facility reaches its door first.
+ * A multi-source breadth-first search over tunnel tiles from the door of every facility of
+ * one kind, so each tile goes to whichever facility reaches it first.
  */
-function serviceAreas(floor: Floor, idx: FloorIndex, kind: PlaceKind) {
-	const cached = idx.areas.get(kind);
-	if (cached) return cached;
+export function serviceReach(floor: Floor, kind: PlaceKind): ServiceReach {
+	const cache = reachCache(floor);
+	const hit = cache.get(kind);
+	if (hit) return hit;
 	const { grid, width, height } = floor.map;
 	const owner = new Int32Array(width * height).fill(-1);
+	const dist = new Int32Array(width * height).fill(-1);
 	const queue: number[] = [];
-	const areas = new Map<number, number[]>();
-	for (const p of idx.places) {
+	for (const p of placesOn(floor)) {
 		if (p.kind !== kind) continue;
-		areas.set(p.room.id, []);
 		const t = p.room.access.y * width + p.room.access.x;
 		if (owner[t] === -1) {
 			owner[t] = p.room.id;
+			dist[t] = 0;
 			queue.push(t);
 		}
 	}
@@ -110,13 +121,35 @@ function serviceAreas(floor: Floor, idx: FloorIndex, kind: PlaceKind) {
 			const n = ny * width + nx;
 			if (owner[n] !== -1 || grid[ny][nx] !== 'road') continue;
 			owner[n] = owner[t];
+			dist[n] = dist[t] + 1;
 			queue.push(n);
 		}
 	}
+	const reach = { owner, dist, width };
+	cache.set(kind, reach);
+	return reach;
+}
+
+/** The facility of one kind serving a room (by its door), and the walk there in tiles; null if none reaches it. */
+export function servedBy(
+	floor: Floor,
+	kind: PlaceKind,
+	room: { access: { x: number; y: number } }
+) {
+	const { owner, dist, width } = serviceReach(floor, kind);
+	const t = room.access.y * width + room.access.x;
+	return owner[t] === -1 ? null : { facility: owner[t], dist: dist[t] };
+}
+
+/** Split a floor's housing between all facilities of one kind (see `serviceReach`). */
+function serviceAreas(floor: Floor, idx: FloorIndex, kind: PlaceKind) {
+	const cached = idx.areas.get(kind);
+	if (cached) return cached;
+	const areas = new Map<number, number[]>();
+	for (const p of idx.places) if (p.kind === kind) areas.set(p.room.id, []);
 	for (const id of idx.sector.keys()) {
-		const r = floor.map.rooms[id];
-		const o = owner[r.access.y * width + r.access.x];
-		if (o !== -1) areas.get(o)?.push(id);
+		const s = servedBy(floor, kind, floor.map.rooms[id]);
+		if (s) areas.get(s.facility)?.push(id);
 	}
 	idx.areas.set(kind, areas);
 	return areas;

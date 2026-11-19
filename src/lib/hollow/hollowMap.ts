@@ -17,7 +17,8 @@ import {
 	type TunnelMapView
 } from '#lib/map/index.js';
 import { LEVELS } from './data.js';
-import { floorStyle, type MapLens, SHAFT_PART } from './mapStyle.js';
+import { floorStyle, type MapLens, SHAFT_PART, TUNNEL_H } from './mapStyle.js';
+import { simulateFloor } from './simulation.js';
 import { cssHex, onThemeChange, tokenHex } from './theme.js';
 import type { Floor } from './world.js';
 import {
@@ -165,6 +166,59 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 		styledWith.set(index, styleKey());
 		layer.setStyle(floorStyle(floor, lens));
 		layer.setTunnelTint(tunnelTint());
+		syncBlocked(index);
+	};
+
+	// ── Blocked tunnels (tunnels lens) ──────────────────────────────────────
+	/** Per level: red blocks on the blocked tiles, and a throbbing glow on the tunnel around them. */
+	const blockedMarks = new Map<number, OverlayHandle[]>();
+	let blockedMats: THREE.Material[] = [];
+	const syncBlocked = (index: number) => {
+		for (const o of blockedMarks.get(index) ?? []) o.remove();
+		blockedMarks.delete(index);
+		const floor = floors.get(index);
+		const tiles =
+			lens === 'tunnels' && floor
+				? [...simulateFloor(floor).blocked].map((k) => k.split(',').map(Number))
+				: [];
+		if (tiles.length) {
+			const layer = layerId(index);
+			const color = tokenHex('map-tunnels-blocked');
+			const wall = tokenHex('map-tunnels-blocked-wall');
+			const pad = 1.6;
+			const glow = map.addOverlay({
+				type: 'rects',
+				layer,
+				rects: tiles.map(([x, y]) => ({ x: x - pad, y: y - pad, w: 1 + pad * 2, h: 1 + pad * 2 })),
+				z: TUNNEL_H + 0.03,
+				color,
+				opacity: 0.4
+			});
+			const blocks = map.addOverlay({
+				type: 'boxes',
+				layer,
+				lit: false,
+				merge: true,
+				boxes: tiles.map(([x, y]) => ({
+					x: x + 0.05,
+					y: y + 0.05,
+					w: 0.9,
+					h: 0.9,
+					z0: 0,
+					z1: TUNNEL_H + 1.4,
+					color: wall,
+					roof: color
+				}))
+			});
+			blockedMarks.set(index, [glow, blocks]);
+		}
+		blockedMats = [];
+		for (const [glow] of blockedMarks.values())
+			glow.object.traverse((o) => {
+				const m = (o as THREE.Mesh).material;
+				if (m) blockedMats.push(...(Array.isArray(m) ? m : [m]));
+			});
+		for (const m of blockedMats) m.transparent = true;
 	};
 	const layerFor = (floor: Floor): MapLayer => {
 		const existing = map.layer(layerId(floor.index));
@@ -180,6 +234,7 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 			visible: false
 		});
 		layer.setTunnelTint(tunnelTint());
+		syncBlocked(floor.index);
 		// Things that ride with levels may name this one before it existed.
 		events.layer.emit(floor.index);
 		return layer;
@@ -254,6 +309,12 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 			const k = (now % 1400) / 1400;
 			const o = 0.15 + 0.6 * Math.pow(1 - k, 2.2);
 			for (const m of alertMats) m.opacity = o;
+		}
+		if (blockedMats.length) {
+			// The glow around blocked tunnels breathes, slower than the alert throb.
+			const k = (now % 2000) / 2000;
+			const o = 0.25 + 0.5 * (0.5 - 0.5 * Math.cos(k * Math.PI * 2));
+			for (const m of blockedMats) m.opacity = o;
 		}
 	});
 

@@ -3,7 +3,9 @@ import type { Room } from '#lib/tunnels/generate.js';
 import { hash01, shade, type LayerStyle, type Prop, type RoomLook } from '#lib/map/index.js';
 import { FACILITY_INFO, LEVELS, SHAFTS, SHAFT_COLORS, type FacilityKind } from './data.js';
 import type { Floor } from './world.js';
-import { SICK_STEPS, sickStep } from './sickness.js';
+import { sickStep } from './sickness.js';
+import { waterStep } from './water.js';
+import { airStep } from './airflow.js';
 import { simulateFloor } from './simulation.js';
 import { cssColor, token, type Token } from './theme.js';
 import type { AlertKind } from './alerts.js';
@@ -11,7 +13,12 @@ import { floorState } from './response.js';
 import type { Status } from './sensors.js';
 
 /** A data view painted over the map instead of its normal palette. */
-export type MapLens = 'sickness' | 'alerts' | `alerts-${AlertKind}`;
+export type MapLens =
+	'sickness' | 'water' | 'airflow' | 'tunnels' | 'alerts' | `alerts-${AlertKind}`;
+
+/** The five colours of a graded lens (`--map-<name>-1` … `-5`). */
+const fiveSteps = (name: 'sick' | 'water' | 'air') =>
+	([1, 2, 3, 4, 5] as const).map((i) => token(`map-${name}-${i}`));
 
 /** Tunnels under a data lens: a flat, very dark trace just above the floor. */
 const lensTunnel = () => {
@@ -163,8 +170,19 @@ function facilityProps(kind: FacilityKind, r: Room, y: number): Prop[] {
 export function floorStyle(floor: Floor, lens: MapLens | null = null): LayerStyle {
 	const c = paletteFor(floor.index);
 	const sim = simulateFloor(floor);
-	const sickness = lens === 'sickness' ? sim.sickness : null;
-	const steps = SICK_STEPS.map((_, i) => token(`map-sick-${(i + 1) as 1 | 2 | 3 | 4 | 5}`));
+	/**
+	 * Graded lenses colour each housing block by one score in five steps; the facilities
+	 * behind the score (recyclers, ventilation plants) stand up in their accent colour.
+	 */
+	const graded =
+		lens === 'sickness'
+			? { data: sim.sickness, steps: fiveSteps('sick'), step: sickStep, source: null }
+			: lens === 'water'
+				? { data: sim.water, steps: fiveSteps('water'), step: waterStep, source: 'water' }
+				: lens === 'airflow'
+					? { data: sim.airflow, steps: fiveSteps('air'), step: airStep, source: 'air' }
+					: null;
+	const tunnels = lens === 'tunnels';
 	const muted = { wall: token('map-muted-wall'), roof: token('map-muted-roof') };
 	const alerts = lens?.startsWith('alerts') ? floorState(floor) : null;
 	/** 'alerts' shows every kind; 'alerts-water' etc. only that one. */
@@ -181,26 +199,51 @@ export function floorStyle(floor: Floor, lens: MapLens | null = null): LayerStyl
 	const rank = { normal: 0, warning: 1, high: 2, critical: 3 } as const;
 	const darkRoof = token('map-alert-dark-roof');
 	const darkWall = token('map-alert-dark-wall');
+	const tunnelRoomRoof = token('map-tunnels-room-roof');
+	const tunnelRoomWall = token('map-tunnels-room-wall');
 	return {
 		seed: floor.index * 1_000_003,
 		// A data lens is read off the rooms alone: they go fully opaque with flat colours (no
 		// per-block brightness jitter skewing the scale), and the tunnels flatten into a
 		// near-black trace on the floor, too low to ever cover a room or its highlight.
-		...(lens
-			? { tunnel: lensTunnel(), ghostOpacity: 0, jitter: 0 }
-			: { tunnel: { top: c.road, wall: c.tunnelWall, height: TUNNEL_H } }),
+		// The tunnels lens does the opposite: the network glows at full height and every
+		// chamber sinks below it, flat and dark.
+		...(tunnels
+			? {
+					tunnel: {
+						top: token('map-tunnels-road'),
+						wall: token('map-tunnels-wall'),
+						height: TUNNEL_H
+					},
+					ghostOpacity: 0
+				}
+			: lens
+				? { tunnel: lensTunnel(), ghostOpacity: 0, jitter: 0 }
+				: { tunnel: { top: c.road, wall: c.tunnelWall, height: TUNNEL_H } }),
 		room(r): RoomLook {
 			const height = roomHeight(floor, r);
 			const facility = floor.facilities.get(r.id);
 			const base = { height, door: null };
-			if (sickness && r.kind !== 'gate') {
-				// Sickness lens: houses in five steps from dark gray to bright orange; every
-				// other chamber recedes so the heat reads at a glance.
-				const s = sickness[r.id];
+			if (graded && r.kind !== 'gate') {
+				// Graded lens (sickness, water, airflow): houses in five steps; every other
+				// chamber recedes so the scale reads at a glance.
+				if (facility && facility.kind === graded.source) {
+					const accent = cssColor(FACILITY_INFO[facility.kind].color);
+					return {
+						...base,
+						roof: accent,
+						wall: accent.clone().multiplyScalar(0.6),
+						height: height + 1
+					};
+				}
+				const s = graded.data[r.id];
 				if (!s) return { ...base, ...muted };
-				const roof = steps[sickStep(s.score)];
+				const roof = graded.steps[graded.step(s.score)];
 				return { ...base, roof, wall: roof.clone().multiplyScalar(0.72) };
 			}
+			if (tunnels && r.kind !== 'gate')
+				// Tunnels lens: one flat block, below the tunnels, so the network reads first.
+				return { height: 1, door: null, roof: tunnelRoomRoof, wall: tunnelRoomWall };
 			if (alerts && r.kind !== 'gate') {
 				// Alerts lens: blackouts sink to near-black with red walls; air and water alerts
 				// glow by severity (the worse one wins where both apply); failing facilities

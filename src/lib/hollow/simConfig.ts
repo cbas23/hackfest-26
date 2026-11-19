@@ -11,7 +11,7 @@ import { HOLLOW_SEED } from './data.js';
 // ── Seeds ───────────────────────────────────────────────────────────────────
 
 /** The independent random streams the simulation draws from. */
-export type SimStream = 'world' | 'sickness' | 'sensors' | 'events';
+export type SimStream = 'world' | 'sickness' | 'sensors' | 'events' | 'water' | 'airflow';
 
 /**
  * Each stream's seed is the city seed XOR a fixed salt, so one city seed drives all of them
@@ -22,7 +22,9 @@ const STREAM_SALT: Record<SimStream, number> = {
 	world: 0,
 	sickness: 0x5eed ^ HOLLOW_SEED,
 	sensors: HOLLOW_SEED,
-	events: 0xb1ac
+	events: 0xb1ac,
+	water: 0x3a7e,
+	airflow: 0xa1f0
 };
 
 /** The seed one simulation draws from, for a given city seed. */
@@ -77,6 +79,55 @@ export const SIM = {
 		strayScore: { min: 0.3, span: 0.4 } satisfies Spread,
 		/** Share of a block's residents who file a health report. */
 		reportShare: { min: 0.04, span: 0.16 } satisfies Spread
+	},
+
+	/**
+	 * Tap-water health per housing block (`water.ts`), 0 (clean) to 1 (toxic). Water gets
+	 * worse the further it travels from its recycler, the deeper the level, near leaky mains,
+	 * and everywhere downstream of a recycler with an active water event.
+	 */
+	water: {
+		/** Walking distance (tiles) at which the pipe run has cost ~63% of `pipeWeight`. */
+		pipeLength: 140,
+		pipeWeight: 0.2,
+		/** Added on L7 (scaled by depth from L1). */
+		depthWeight: 0.08,
+		/** Leaky mains: blobs of local contamination, more of them deeper down. */
+		leaks: { base: 3, perLevel: 0.6 },
+		leakRadius: { min: 8, span: 20 } satisfies Spread,
+		leakStrength: { min: 0.35, span: 0.4 } satisfies Spread,
+		/**
+		 * Added to the blocks a recycler serves, by its sensor status: in full at its door,
+		 * fading to `plumeTail` of it along the pipes (tiles at which it has faded ~63%).
+		 */
+		statusBump: { normal: 0, warning: 0.2, high: 0.38, critical: 0.58 },
+		plumeLength: 70,
+		plumeTail: 0.3,
+		/** Blocks no recycler reaches. */
+		unserved: 0.82,
+		/** Per-block noise (± half of this). */
+		noise: 0.1
+	},
+
+	/**
+	 * Airflow per housing block (`airflow.ts`), 0 (still) to 1 (strong). Strongest next to a
+	 * ventilation plant, fading with the tunnel walk away from it, thinner on deep levels
+	 * (`LEVELS[].air`), throttled by a plant's airflow reading, with drafts around the shafts.
+	 */
+	airflow: {
+		/** Walking distance (tiles) at which a plant's push has dropped to ~37%. */
+		reach: 120,
+		/** Share of flow that doesn't depend on the distance to a plant. */
+		floor: 0.2,
+		/** Share of flow that doesn't depend on the level's air supply. */
+		levelBase: 0.5,
+		/** Drafts around the shafts: strength, and distance (tiles) at which they fade to ~37%. */
+		shaftDraft: 0.28,
+		shaftReach: 22,
+		/** Blocks no ventilation plant reaches. */
+		unserved: 0.06,
+		/** Per-block noise (± half of this). */
+		noise: 0.1
 	},
 
 	/**
