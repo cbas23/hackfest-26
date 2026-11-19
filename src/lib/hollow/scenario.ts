@@ -1,43 +1,35 @@
 /**
- * The starter scenario: a deterministic first set of events for a city, drawn from its seed
- * (the `events` stream). The control center loads it into Convex ("Load starter scenario"),
- * and pages that never connect to Convex use it as their read-only events.
+ * The starter scenario: a deterministic first state for a city, drawn from its seed (the
+ * `scenario` stream). The control center loads it into Convex ("Load starter scenario"), and
+ * pages that never connect to Convex use it as their read-only state.
  *
- * - Blackouts: a few round power cuts per level, more and wider on the darker, deeper levels.
- * - Air and water: each ventilation and water facility the stress model (sensors.ts) reads
- *   as Warning or worse gets one event on its worst metric, with that reading.
+ * - Points: a few power, water and air points per level, centred on housing blocks; more
+ *   and wider on the darker, deeper levels.
  * - Blocked tunnels: a few short stretches of tunnel per level.
  * - Sickness: the default settings.
  * Tuning: `SIM.scenario`.
  */
 import { mulberry32 } from '#lib/random.js';
 import { LEVELS } from './data.js';
-import type {
-	AirEvent,
-	AirMetric,
-	BlackoutEvent,
-	BlockedTunnelEvent,
-	HollowEvents,
-	Severity,
-	Tile,
-	WaterEvent,
-	WaterMetric
-} from './events.js';
-import { placesOn } from './nav.js';
-import { STATUS_INFO, stressReadings } from './sensors.js';
+import {
+	POINT_KINDS,
+	POINT_RADIUS,
+	type BlockedTunnel,
+	type HollowState,
+	type StatePoint,
+	type Tile
+} from './state.js';
 import { DEFAULT_SICKNESS } from './sickness.js';
 import { SIM, spread, streamSeed } from './simConfig.js';
 import type { Floor, Hollow } from './world.js';
 
 type New<T> = Omit<T, 'id'>;
 
-/** A scenario before it has ids: what Convex's `events.loadScenario` takes. */
+/** A scenario before it has ids: what Convex's `scenario.load` takes. */
 export interface Scenario {
-	blackouts: New<BlackoutEvent>[];
-	airQuality: New<AirEvent>[];
-	waterCuts: New<WaterEvent>[];
-	blockedTunnels: New<BlockedTunnelEvent>[];
-	sickness: HollowEvents['sickness'];
+	points: New<StatePoint>[];
+	blockedTunnels: New<BlockedTunnel>[];
+	sickness: HollowState['sickness'];
 }
 
 const C = SIM.scenario;
@@ -89,46 +81,28 @@ export function tunnelRun(floor: Floor, start: Tile, length: number): Tile[] {
 }
 
 function floorScenario(floor: Floor, citySeed: number): Omit<Scenario, 'sickness'> {
-	const level = LEVELS[floor.index];
-	const rand = mulberry32(streamSeed(citySeed, 'events') + floor.index * 7919);
+	const rand = mulberry32(streamSeed(citySeed, 'scenario') + floor.index * 7919);
 	const housing = floor.map.rooms.filter((r) => floor.residents[r.id] > 0);
-	const dark = 1 - level.light;
+	const dark = 1 - LEVELS[floor.index].light;
+	const depth = floor.index / (LEVELS.length - 1);
 
-	const blackouts: New<BlackoutEvent>[] = [];
-	const count = Math.max(
-		C.blackouts.min,
-		Math.round(C.blackouts.max * dark * (0.6 + rand() * 0.6))
-	);
-	for (let i = 0; i < count && housing.length; i++) {
-		const r = housing[Math.floor(rand() * housing.length)];
-		blackouts.push({
-			level: floor.index,
-			x: Math.round(r.x + r.w / 2),
-			y: Math.round(r.y + r.h / 2),
-			radius: Math.round(spread(C.blackoutRadius, rand()) * (0.5 + 1.6 * dark))
-		});
+	const points: New<StatePoint>[] = [];
+	for (const kind of POINT_KINDS) {
+		const count = Math.max(C.points.min, Math.round(C.points.max * dark * (0.4 + rand() * 0.6)));
+		for (let i = 0; i < count && housing.length; i++) {
+			const r = housing[Math.floor(rand() * housing.length)];
+			const radius = Math.round(spread(C.pointRadius, rand()) * (0.7 + depth * 0.6));
+			points.push({
+				kind,
+				level: floor.index,
+				x: Math.round(r.x + r.w / 2),
+				y: Math.round(r.y + r.h / 2),
+				radius: Math.min(POINT_RADIUS.max, Math.max(POINT_RADIUS.min, radius))
+			});
+		}
 	}
 
-	const airQuality: New<AirEvent>[] = [];
-	const waterCuts: New<WaterEvent>[] = [];
-	for (const p of placesOn(floor)) {
-		if (p.kind !== 'air' && p.kind !== 'water') continue;
-		const s = stressReadings(floor, p, p.kind);
-		if (s.status === 'normal') continue;
-		const worst = s.readings.reduce((a, b) =>
-			STATUS_INFO[b.status].rank > STATUS_INFO[a.status].rank ? b : a
-		);
-		const event = {
-			level: floor.index,
-			facility: p.key,
-			severity: worst.status as Severity,
-			value: worst.value
-		};
-		if (p.kind === 'air') airQuality.push({ ...event, metric: worst.key as AirMetric });
-		else waterCuts.push({ ...event, metric: worst.key as WaterMetric });
-	}
-
-	const blockedTunnels: New<BlockedTunnelEvent>[] = [];
+	const blockedTunnels: New<BlockedTunnel>[] = [];
 	const roads: Tile[] = [];
 	floor.map.grid.forEach((row, y) =>
 		row.forEach((t, x) => {
@@ -148,37 +122,25 @@ function floorScenario(floor: Floor, citySeed: number): Omit<Scenario, 'sickness
 		i++;
 	}
 
-	return { blackouts, airQuality, waterCuts, blockedTunnels };
+	return { points, blockedTunnels };
 }
 
 /** The starter scenario for a city (builds every floor, so it is slow the first time). */
 export function starterScenario(city: Hollow): Scenario {
-	const out: Scenario = {
-		blackouts: [],
-		airQuality: [],
-		waterCuts: [],
-		blockedTunnels: [],
-		sickness: { ...DEFAULT_SICKNESS }
-	};
+	const out: Scenario = { points: [], blockedTunnels: [], sickness: { ...DEFAULT_SICKNESS } };
 	for (const level of LEVELS) {
 		const s = floorScenario(city.floor(level.index), city.seed);
-		out.blackouts.push(...s.blackouts);
-		out.airQuality.push(...s.airQuality);
-		out.waterCuts.push(...s.waterCuts);
+		out.points.push(...s.points);
 		out.blockedTunnels.push(...s.blockedTunnels);
 	}
 	return out;
 }
 
-/** Give a scenario's events local ids, to use it without Convex. */
-export function withLocalIds(s: Scenario): HollowEvents {
-	const ids = <T>(table: string, list: T[]) =>
-		list.map((e, i) => ({ ...e, id: `local:${table}:${i}` }));
+/** Give a scenario local ids, to use it without Convex. */
+export function withLocalIds(s: Scenario): HollowState {
 	return {
-		blackouts: ids('blackouts', s.blackouts),
-		airQuality: ids('airQuality', s.airQuality),
-		waterCuts: ids('waterCuts', s.waterCuts),
-		blockedTunnels: ids('blockedTunnels', s.blockedTunnels),
+		points: s.points.map((p, i) => ({ ...p, id: `local:points:${i}` })),
+		blockedTunnels: s.blockedTunnels.map((t, i) => ({ ...t, id: `local:blockedTunnels:${i}` })),
 		sickness: s.sickness
 	};
 }

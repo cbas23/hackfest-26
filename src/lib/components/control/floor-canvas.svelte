@@ -1,26 +1,18 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { FACILITY_INFO } from '#lib/hollow/data.js';
-	import { ALERT_INFO } from '#lib/hollow/alerts.js';
-	import { isActive, type Tile } from '#lib/hollow/events.js';
+	import { POINT_INFO, POINT_KINDS, type PointKind, type Tile } from '#lib/hollow/state.js';
 	import { nearestRoad, tunnelRun } from '#lib/hollow/scenario.js';
-	import { STATUS_INFO } from '#lib/hollow/sensors.js';
 	import { SICK_STEPS, sickStep, sicknessOf } from '#lib/hollow/sickness.js';
 	import { getHollow, simulateFloor } from '#lib/hollow/simulation.js';
 	import { cssHex, onThemeChange } from '#lib/hollow/theme.js';
 	import { floorBounds } from '#lib/hollow/world.js';
-	import { live } from '#lib/live/events.svelte.js';
-	import {
-		addBlackout,
-		addBlockedTunnel,
-		control,
-		type FacilityTable
-	} from './control-state.svelte.js';
+	import { live } from '#lib/live/state.svelte.js';
+	import { addBlockedTunnel, addPoint, control, isPointTab } from './control-state.svelte.js';
 
 	/**
-	 * A flat, top-down map of one level with its events drawn on top. Clicking places an
-	 * event of the open tab's kind: a blackout, a blocked tunnel, or (air / water) picks the
-	 * facility to edit.
+	 * A flat, top-down map of one level with its state drawn on top. Clicking places what the
+	 * open tab edits: a power, water or air point, or a blocked tunnel.
 	 */
 
 	const hollow = getHollow();
@@ -62,35 +54,21 @@
 		return start ? tunnelRun(floor, start, control.tunnelLength) : [];
 	};
 
-	/** The air or water facility under a tile, if the open tab edits that kind. */
-	function facilityAt(t: Tile) {
-		const kind =
-			control.tab === 'airQuality' ? 'air' : control.tab === 'waterCuts' ? 'water' : null;
-		if (!kind) return null;
-		const id = floor.map.roomAt[t.y]?.[t.x] ?? -1;
-		return sim.places.find((p) => p.room.id === id && p.kind === kind) ?? null;
-	}
-
 	function onclick(e: PointerEvent) {
 		const t = tileAt(e);
 		if (control.busy) return;
-		if (control.tab === 'blackouts') void addBlackout(t.x, t.y);
-		else if (control.tab === 'blockedTunnels') {
+		if (isPointTab(control.tab)) void addPoint(control.tab, t.x, t.y);
+		else if (control.tab === 'tunnels') {
 			const run = runAt(t);
 			if (run.length >= 2) void addBlockedTunnel(run);
-		} else {
-			const p = facilityAt(t);
-			if (p) control.facility[control.tab as FacilityTable] = p.key;
 		}
 	}
 
 	const cursor = $derived.by(() => {
 		if (!hover) return 'default';
-		if (control.tab === 'blackouts') return 'crosshair';
-		if (control.tab === 'blockedTunnels')
-			return runAt(hover).length >= 2 ? 'crosshair' : 'not-allowed';
-		if (control.tab === 'sickness') return 'default';
-		return facilityAt(hover) ? 'pointer' : 'default';
+		if (isPointTab(control.tab)) return 'crosshair';
+		if (control.tab === 'tunnels') return runAt(hover).length >= 2 ? 'crosshair' : 'not-allowed';
+		return 'default';
 	});
 
 	function draw() {
@@ -107,20 +85,19 @@
 		const col = {
 			road: cssHex('var(--muted-foreground)'),
 			room: cssHex('var(--muted-foreground)'),
-			dark: ALERT_INFO.blackout.color,
-			blocked: '#f59e0b',
-			fg: cssHex('var(--foreground)'),
-			bg: cssHex('var(--background)')
+			blocked: '#f59e0b'
 		};
 		const tab = control.tab;
+		const kind = isPointTab(tab) ? tab : null;
+		const kindColor = Object.fromEntries(
+			POINT_KINDS.map((k) => [k, cssHex(POINT_INFO[k].color)])
+		) as Record<PointKind, string>;
 		const sickness =
-			tab === 'sickness' ? sicknessOf(floor, control.sicknessDraft ?? sim.events.sickness) : null;
+			tab === 'sickness' ? sicknessOf(floor, control.sicknessDraft ?? sim.state.sickness) : null;
 		const steps = SICK_STEPS.map((st) => cssHex(st.color));
-		const focusKey = tab === 'airQuality' || tab === 'waterCuts' ? control.facility[tab] : null;
-		const focus = focusKey ? sim.places.find((p) => p.key === focusKey) : null;
-		const served = new Set(
-			focus ? (sim.impact(focus)?.neighborhoods.flatMap((n) => n.blocks) ?? []) : []
-		);
+		/** Housing that is bad for the open kind (power on the tunnels tab). */
+		const bad = sim.bad(kind ?? 'power');
+		const badColor = kindColor[kind ?? 'power'];
 
 		// Tunnels.
 		ctx.fillStyle = col.road;
@@ -130,7 +107,7 @@
 			for (let x = 0; x < grid[y].length; x++)
 				if (grid[y][x] === 'road') ctx.fillRect(px(x), py(y), s + 0.3, s + 0.3);
 
-		// Rooms: housing by power (or sickness), facilities in their colour.
+		// Rooms: housing bad for the open kind (or by sickness), facilities in their colour.
 		for (const r of floor.map.rooms) {
 			const spec = floor.facilities.get(r.id);
 			const x = px(r.x);
@@ -146,12 +123,9 @@
 			if (sickness?.[r.id]) {
 				ctx.globalAlpha = 0.95;
 				ctx.fillStyle = steps[sickStep(sickness[r.id]!.score)];
-			} else if (served.has(r.id)) {
-				ctx.globalAlpha = 0.55;
-				ctx.fillStyle = cssHex(STATUS_INFO[sim.status(focus!)?.status ?? 'normal'].color);
-			} else if (floor.residents[r.id] > 0 && !sim.lit[r.id]) {
-				ctx.globalAlpha = 0.55;
-				ctx.fillStyle = col.dark;
+			} else if (!sickness && bad[r.id]) {
+				ctx.globalAlpha = 0.6;
+				ctx.fillStyle = badColor;
 			} else {
 				ctx.globalAlpha = floor.residents[r.id] > 0 ? 0.45 : 0.25;
 				ctx.fillStyle = col.room;
@@ -160,46 +134,33 @@
 		}
 		ctx.globalAlpha = 1;
 
-		// Failing air and water facilities get a status ring; the selected one a bold outline.
-		for (const p of sim.places) {
-			if (p.kind !== 'air' && p.kind !== 'water') continue;
-			const st = sim.status(p);
-			const cx = px(p.room.x + p.room.w / 2);
-			const cy = py(p.room.y + p.room.h / 2);
-			if (st && st.status !== 'normal') {
-				ctx.strokeStyle = cssHex(STATUS_INFO[st.status].color);
-				ctx.lineWidth = 2.5;
-				ctx.beginPath();
-				ctx.arc(cx, cy, Math.max(p.room.w, p.room.h) * s * 0.5 + 5, 0, Math.PI * 2);
-				ctx.stroke();
-			}
-			if (p.key === focusKey) {
-				ctx.strokeStyle = col.fg;
-				ctx.lineWidth = 2;
-				ctx.strokeRect(px(p.room.x) - 3, py(p.room.y) - 3, p.room.w * s + 6, p.room.h * s + 6);
-			}
-		}
-
-		// Blackout areas.
-		for (const b of sim.local.blackouts) {
-			const active = isActive(b);
-			ctx.strokeStyle = active ? col.dark : col.room;
-			ctx.lineWidth = active ? 1.5 : 1;
-			ctx.setLineDash(active ? [] : [4, 4]);
+		// Points: the open kind's bold, the others faint and dashed.
+		for (const p of sim.local.points) {
+			const mine = p.kind === kind;
+			ctx.strokeStyle = kindColor[p.kind];
+			ctx.globalAlpha = mine ? 1 : 0.35;
+			ctx.lineWidth = mine ? 1.75 : 1;
+			ctx.setLineDash(mine ? [] : [4, 4]);
 			ctx.beginPath();
-			ctx.arc(px(b.x + 0.5), py(b.y + 0.5), b.radius * s, 0, Math.PI * 2);
+			ctx.arc(px(p.x + 0.5), py(p.y + 0.5), p.radius * s, 0, Math.PI * 2);
 			ctx.stroke();
+			if (mine) {
+				ctx.fillStyle = kindColor[p.kind];
+				ctx.beginPath();
+				ctx.arc(px(p.x + 0.5), py(p.y + 0.5), 3, 0, Math.PI * 2);
+				ctx.fill();
+			}
 		}
+		ctx.globalAlpha = 1;
 		ctx.setLineDash([]);
 
 		// Blocked tunnels: the tiles, plus a marker so a 2-tile stretch is findable.
+		ctx.fillStyle = col.blocked;
+		ctx.strokeStyle = col.blocked;
+		ctx.lineWidth = 1.5;
 		for (const t of sim.local.blockedTunnels) {
-			const active = isActive(t);
-			ctx.fillStyle = active ? col.blocked : col.room;
 			for (const tile of t.tiles) ctx.fillRect(px(tile.x), py(tile.y), s, s);
 			const mid = t.tiles[Math.floor(t.tiles.length / 2)];
-			ctx.strokeStyle = active ? col.blocked : col.room;
-			ctx.lineWidth = 1.5;
 			ctx.beginPath();
 			ctx.arc(px(mid.x + 0.5), py(mid.y + 0.5), 7, 0, Math.PI * 2);
 			ctx.stroke();
@@ -207,15 +168,15 @@
 
 		// What a click would do here.
 		if (hover) {
-			if (tab === 'blackouts') {
-				ctx.strokeStyle = col.dark;
+			if (kind) {
+				ctx.strokeStyle = kindColor[kind];
 				ctx.setLineDash([3, 3]);
 				ctx.lineWidth = 1.5;
 				ctx.beginPath();
 				ctx.arc(px(hover.x + 0.5), py(hover.y + 0.5), control.radius * s, 0, Math.PI * 2);
 				ctx.stroke();
 				ctx.setLineDash([]);
-			} else if (tab === 'blockedTunnels') {
+			} else if (tab === 'tunnels') {
 				ctx.globalAlpha = 0.7;
 				ctx.fillStyle = col.blocked;
 				for (const t of runAt(hover)) ctx.fillRect(px(t.x), py(t.y), s, s);
@@ -244,7 +205,7 @@
 		bind:this={canvas}
 		class="absolute inset-0 h-full w-full"
 		style="cursor:{cursor}"
-		aria-label="Map of the level. Click to place an event."
+		aria-label="Map of the level. Click to place a point or block a tunnel."
 		onpointermove={(e) => (hover = tileAt(e))}
 		onpointerleave={() => (hover = null)}
 		onpointerdown={onclick}

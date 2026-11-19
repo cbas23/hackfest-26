@@ -44,7 +44,7 @@ export type CollectionMethod =
  */
 export type CountType = 'patients' | 'reports' | 'confirmed' | 'signal';
 
-/** The nine districts of a floor, matching the names used in `hollow/impact.ts`. */
+/** The nine districts of a floor (its 3×3 compass sectors, e.g. "North-East"). */
 export type Sector =
 	| 'North-West'
 	| 'North'

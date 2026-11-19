@@ -7,10 +7,10 @@
 	import WindIcon from '@lucide/svelte/icons/wind';
 	import DropletsIcon from '@lucide/svelte/icons/droplets';
 	import FanIcon from '@lucide/svelte/icons/fan';
+	import ZapIcon from '@lucide/svelte/icons/zap';
 	import WaypointsIcon from '@lucide/svelte/icons/waypoints';
-	import { WATER_STEPS } from '#lib/hollow/water.js';
-	import { AIR_STEPS } from '#lib/hollow/airflow.js';
-	import StepScale from './step-scale.svelte';
+	import { POINT_INFO } from '#lib/hollow/state.js';
+	import StateLegend from './state-legend.svelte';
 	import TunnelLegend from './tunnel-legend.svelte';
 	import HomeAddress from './home-address.svelte';
 	import SicknessScale from './sickness-scale.svelte';
@@ -30,6 +30,30 @@
 	/** Data layers: cards that repaint the map while open (their lens is in SECTION_LENS). */
 	const LAYERS: Layer[] = [
 		{
+			id: 'power',
+			title: 'Power',
+			summary: 'Blocks with and without power',
+			icon: ZapIcon,
+			color: POINT_INFO.power.color,
+			content: powerInfo
+		},
+		{
+			id: 'water',
+			title: 'Water',
+			summary: 'Good and bad tap water by block',
+			icon: DropletsIcon,
+			color: POINT_INFO.water.color,
+			content: waterInfo
+		},
+		{
+			id: 'air',
+			title: 'Air',
+			summary: 'Good and bad air by block',
+			icon: FanIcon,
+			color: POINT_INFO.air.color,
+			content: airInfo
+		},
+		{
 			id: 'sickness',
 			title: 'Lung sickness',
 			summary: 'Reported cases by block',
@@ -37,22 +61,6 @@
 			// The top of the sickness scale.
 			color: SICK_STEPS[SICK_STEPS.length - 1].color,
 			content: sicknessInfo
-		},
-		{
-			id: 'water',
-			title: 'Water health',
-			summary: 'Tap-water quality by block',
-			icon: DropletsIcon,
-			color: WATER_STEPS[3].color,
-			content: waterInfo
-		},
-		{
-			id: 'airflow',
-			title: 'Air flow',
-			summary: 'Ventilation reaching each block',
-			icon: FanIcon,
-			color: AIR_STEPS[AIR_STEPS.length - 1].color,
-			content: airflowInfo
 		},
 		{
 			id: 'tunnels',
@@ -65,6 +73,21 @@
 	];
 </script>
 
+{#snippet powerInfo()}
+	<p>Each block is coloured by whether it has power. Outages cover round areas of the level.</p>
+	<StateLegend kind="power" />
+{/snippet}
+
+{#snippet waterInfo()}
+	<p>Each block is coloured by whether its tap water is good or bad to drink.</p>
+	<StateLegend kind="water" />
+{/snippet}
+
+{#snippet airInfo()}
+	<p>Each block is coloured by whether its air is good or bad to breathe.</p>
+	<StateLegend kind="air" />
+{/snippet}
+
 {#snippet sicknessInfo()}
 	<p>
 		Each block is coloured by the share of its reported residents who are sick. Outbreaks start on
@@ -74,31 +97,6 @@
 		<span>Share of reported residents sick</span>
 		<SicknessScale />
 		<p class="text-[10px]">Simulated reports</p>
-	</div>
-{/snippet}
-
-{#snippet waterInfo()}
-	<p>
-		Each block is coloured by the health of its tap water. Water worsens along long pipe runs from
-		its recycler, around leaky mains and further down; a failing recycler taints every block it
-		serves.
-	</p>
-	<div class="flex flex-col gap-1.5 text-xs">
-		<span>Tap-water health</span>
-		<StepScale steps={WATER_STEPS} />
-		<p class="text-[10px]">Simulated readings</p>
-	</div>
-{/snippet}
-
-{#snippet airflowInfo()}
-	<p>
-		Each block is coloured by how much fresh air reaches it. Flow is strongest next to a ventilation
-		plant, fades along the tunnels, thins on deeper levels and picks up drafts near the shafts.
-	</p>
-	<div class="flex flex-col gap-1.5 text-xs">
-		<span>Air flow at the block</span>
-		<StepScale steps={AIR_STEPS} />
-		<p class="text-[10px]">Simulated readings</p>
 	</div>
 {/snippet}
 

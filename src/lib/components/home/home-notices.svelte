@@ -8,9 +8,9 @@
 	import { untrack } from 'svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { homeNotices, type HomeNotice, type NoticeKind } from '#lib/hollow/notices.js';
-	import { STATUS_INFO } from '#lib/hollow/sensors.js';
+	import { STATUS_INFO } from '#lib/hollow/status.js';
 	import { getHollow, simulateFloor } from '#lib/hollow/simulation.js';
-	import { live } from '#lib/live/events.svelte.js';
+	import { live } from '#lib/live/state.svelte.js';
 	import { cn } from '#lib/utils.js';
 	import BellIcon from '@lucide/svelte/icons/bell';
 	import CircleCheckIcon from '@lucide/svelte/icons/circle-check';
@@ -25,14 +25,14 @@
 	let { class: className = '' }: { class?: string } = $props();
 
 	const KIND: Record<NoticeKind, { icon: typeof ZapOffIcon; layer: LayerId | null }> = {
-		power: { icon: ZapOffIcon, layer: null },
+		power: { icon: ZapOffIcon, layer: 'power' },
 		water: { icon: DropletsIcon, layer: 'water' },
-		air: { icon: FanIcon, layer: 'airflow' },
+		air: { icon: FanIcon, layer: 'air' },
 		sickness: { icon: WindIcon, layer: 'sickness' }
 	};
 
 	const place = $derived(placeByKey(home.address));
-	/** The home's notices, recomputed whenever the live events change. */
+	/** The home's notices, recomputed whenever the live state changes. */
 	const notices = $derived.by<HomeNotice[]>(() => {
 		void live.version;
 		return place ? homeNotices(simulateFloor(getHollow().floor(place.floor)), place) : [];
@@ -64,8 +64,8 @@
 
 	const RESOLVED_TITLE: Record<NoticeKind, string> = {
 		power: 'Power restored at your home',
-		water: 'Water notice lifted',
-		air: 'Air back to normal',
+		water: 'Water good again',
+		air: 'Air good again',
 		sickness: 'Lung sickness easing'
 	};
 

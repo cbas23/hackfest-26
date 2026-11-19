@@ -1,60 +1,33 @@
 /**
- * Shapes shared by the event tables. Every event is fictional: the Hollow's control center
- * (`/control`) writes them and the main map reads them. Map geometry (tunnels, rooms,
- * facilities, residents) stays in the browser; events point into it by level, tile
- * coordinates and facility keys (`"<level>:<roomId>"`).
+ * Shapes of the Hollow's shared state. All of it is fictional: the control center
+ * (`/control`) writes it and the main map reads it. Map geometry (tunnels, rooms,
+ * facilities, residents) stays in the browser; the state points into it by level and tile
+ * coordinates.
  */
-import { v, type Infer } from 'convex/values';
+import { v } from 'convex/values';
 
-export const severity = v.union(v.literal('warning'), v.literal('high'), v.literal('critical'));
-export type Severity = Infer<typeof severity>;
+/** What a point puts out of order: power, water or air. */
+export const pointKind = v.union(v.literal('power'), v.literal('water'), v.literal('air'));
 
-export const airMetric = v.union(v.literal('co2'), v.literal('pm25'), v.literal('airflow'));
-export const waterMetric = v.union(
-	v.literal('turbidity'),
-	v.literal('chlorine'),
-	v.literal('output')
-);
+/**
+ * A bad spot for one kind of service: every housing block whose centre is inside the
+ * circle has bad power, water or air. Outside every point of a kind, that kind is good.
+ */
+export const point = v.object({
+	kind: pointKind,
+	level: v.number(),
+	x: v.number(),
+	y: v.number(),
+	radius: v.number(),
+	/** Optional words for the residents it touches. */
+	note: v.optional(v.string())
+});
 
 export const tile = v.object({ x: v.number(), y: v.number() });
 
-/** Fields every event carries. `resolvedAt` is set once a crew fixed it. */
-const base = {
-	level: v.number(),
-	note: v.optional(v.string()),
-	resolvedAt: v.optional(v.number())
-};
-
-/** A power cut over a round area: every housing block whose centre is inside goes dark. */
-export const blackout = v.object({
-	...base,
-	x: v.number(),
-	y: v.number(),
-	radius: v.number()
-});
-
-/** A ventilation facility reading badly on one metric. */
-export const airEvent = v.object({
-	...base,
-	facility: v.string(),
-	metric: airMetric,
-	severity,
-	/** Exact reading; when absent it sits in the middle of the severity's band. */
-	value: v.optional(v.number())
-});
-
-/** A water facility failing: bad quality (turbidity, chlorine) or a supply cut (output). */
-export const waterEvent = v.object({
-	...base,
-	facility: v.string(),
-	metric: waterMetric,
-	severity,
-	value: v.optional(v.number())
-});
-
 /** A short stretch (2–5 tiles) of tunnel that can't be passed. */
 export const blockedTunnel = v.object({
-	...base,
+	level: v.number(),
 	tiles: v.array(tile),
 	reason: v.string()
 });
@@ -75,11 +48,10 @@ export const sicknessSettings = v.object({
 	depthFalloff: v.number()
 });
 
-export const BLOCKED_TILES = { min: 2, max: 5 } as const;
-
 /** The Hollow has seven levels, L1 (0) to L7 (6). */
 export const LEVEL_COUNT = 7;
-export const BLACKOUT_RADIUS = { min: 2, max: 60 } as const;
+export const POINT_RADIUS = { min: 2, max: 60 } as const;
+export const BLOCKED_TILES = { min: 2, max: 5 } as const;
 
 const fail = (msg: string): never => {
 	throw new Error(msg);
@@ -91,14 +63,8 @@ export function checkLevel(level: number) {
 }
 
 export function checkRadius(radius: number) {
-	if (!(radius >= BLACKOUT_RADIUS.min && radius <= BLACKOUT_RADIUS.max))
-		fail(`radius must be ${BLACKOUT_RADIUS.min}–${BLACKOUT_RADIUS.max} tiles`);
-}
-
-/** Facility keys are `"<level>:<roomId>"`, and must sit on the event's level. */
-export function checkFacility(level: number, facility: string) {
-	const m = /^(\d+):(\d+)$/.exec(facility);
-	if (!m || Number(m[1]) !== level) fail(`facility must be "<level>:<roomId>" on level ${level}`);
+	if (!(radius >= POINT_RADIUS.min && radius <= POINT_RADIUS.max))
+		fail(`radius must be ${POINT_RADIUS.min}–${POINT_RADIUS.max} tiles`);
 }
 
 export function checkTiles(tiles: { x: number; y: number }[]) {

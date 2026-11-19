@@ -12,9 +12,8 @@
 	} from '#lib/hollow/nav.js';
 	import { createHollowMap, type HollowMap, type Pick } from '#lib/hollow/hollowMap.js';
 	import { routeOverlay } from '#lib/hollow/scene/route.js';
-	import { STATUS_INFO, type Status } from '#lib/hollow/sensors.js';
 	import { floorBounds, type Floor } from '#lib/hollow/world.js';
-	import { getHollow, simulateFloor } from '#lib/hollow/simulation.js';
+	import { getHollow, pointTotals, simulateFloor } from '#lib/hollow/simulation.js';
 
 	const hollow = getHollow();
 	const placesFor = placesOn;
@@ -273,8 +272,6 @@
 		color: string;
 		place?: Place;
 		toFloor?: number;
-		/** Worst sensor status, for monitored facilities. */
-		status?: Status;
 	}
 	const pins = $derived.by<PinSpec[]>(() => {
 		const out: PinSpec[] = [];
@@ -324,8 +321,7 @@
 				kind: p.kind,
 				label: p.label,
 				color: placeColor(p),
-				place: p,
-				status: simulateFloor(floor).status(p)?.status
+				place: p
 			});
 		}
 		if (route) {
@@ -374,24 +370,6 @@
 		);
 	});
 	const showNames = $derived(distance < 200);
-
-	// ── Impact assessment (selected facility → affected neighborhoods) ──────
-	const impact = $derived(
-		selected ? simulateFloor(hollow.floor(selected.floor)).impact(selected) : null
-	);
-	$effect(() => {
-		const show = impact?.active && impact.facility.floor === levelIndex;
-		scene?.setImpact(
-			show
-				? impact.neighborhoods.flatMap((n) =>
-						n.blocks.map((id) => ({
-							room: floor.map.rooms[id],
-							color: STATUS_INFO[n.severity].color
-						}))
-					)
-				: []
-		);
-	});
 
 	// ── Keyboard ─────────────────────────────────────────────────────────────
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- never read by the template
@@ -633,16 +611,7 @@
 						onclick={() => p.place && focusPlace(p.place)}
 						aria-label={p.label}
 					>
-						<span class="relative">
-							{@render kindIcon(p.kind, p.color, p.kind === 'shaft' ? 28 : 24)}
-							{#if p.status}
-								<span
-									class="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[#121726]"
-									style="background:{STATUS_INFO[p.status].color}"
-									title={STATUS_INFO[p.status].label}
-								></span>
-							{/if}
-						</span>
+						{@render kindIcon(p.kind, p.color, p.kind === 'shaft' ? 28 : 24)}
 						{#if showNames || p.kind === 'shaft'}
 							<span
 								class="mt-0.5 text-xs font-semibold whitespace-nowrap text-slate-100 [text-shadow:0_0_3px_#121726,0_0_3px_#121726,0_0_6px_#121726]"
@@ -817,7 +786,7 @@
 				<dl class="grid grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-1.5 text-xs">
 					<dt class="text-slate-400">Population</dt>
 					<dd class="col-span-2 text-slate-100">≈ {population(level.population)}</dd>
-					{#each [['Light', level.light, '#fde68a'], ['Air', level.air, '#7dd3fc'], ['Heat', level.heat, '#fb923c'], ['Power', simulateFloor(floor).litShare, '#5eead4']] as const as [label, v, c] (label)}
+					{#each [['Light', level.light, '#fde68a'], ['Air', level.air, '#7dd3fc'], ['Heat', level.heat, '#fb923c'], ['Power', 1 - pointTotals([floor], 'power').share, '#5eead4']] as const as [label, v, c] (label)}
 						<dt class="text-slate-400">{label}</dt>
 						<dd class="h-1.5 rounded bg-white/10">
 							<span class="block h-full rounded" style="width:{pct(v)};background:{c}"></span>
@@ -916,7 +885,6 @@
 	{#if selected}
 		{@const p = selected}
 		{@const pf = hollow.floor(p.floor)}
-		{@const sensors = simulateFloor(hollow.floor(p.floor)).status(p)}
 		<section
 			class="absolute bottom-4 left-4 z-20 max-h-[calc(100%-6rem)] w-[min(24rem,calc(100%-5.5rem))] overflow-y-auto rounded-2xl border border-white/10 bg-[#1f2638]/95 p-4 shadow-xl backdrop-blur"
 			aria-label={p.label}
@@ -951,95 +919,16 @@
 				{:else if p.kind !== 'block'}
 					{p.note}
 				{:else}
-					<span class={simulateFloor(pf).lit[p.room.id] ? 'text-emerald-400' : 'text-slate-400'}
-						>{simulateFloor(pf).lit[p.room.id] ? 'Powered' : 'Blackout'}</span
+					<span
+						class={simulateFloor(pf).bad('power')[p.room.id]
+							? 'text-slate-400'
+							: 'text-emerald-400'}
+						>{simulateFloor(pf).bad('power')[p.room.id] ? 'No power' : 'Powered'}</span
 					>
 					· ≈ {compact.format(pf.residents[p.room.id])} residents · {p.room.w}×{p.room.h} block, single
 					door
 				{/if}
 			</p>
-			{#if sensors}
-				{@const overall = STATUS_INFO[sensors.status]}
-				<div class="mt-3 rounded-xl border border-white/10 bg-black/20 p-3">
-					<div class="mb-2 flex items-center justify-between text-xs">
-						<span class="font-semibold tracking-wider text-slate-400">SENSORS</span>
-						<span
-							class="rounded-full px-2 py-0.5 font-semibold"
-							style="color:{overall.color};background:color-mix(in oklab, {overall.color} 13%, transparent)"
-						>
-							{overall.label}
-						</span>
-					</div>
-					<dl class="grid grid-cols-[auto_1fr_auto] items-center gap-x-2 gap-y-1 text-xs">
-						{#each sensors.readings as r (r.key)}
-							<span
-								class="h-2 w-2 rounded-full"
-								style="background:{STATUS_INFO[r.status].color}"
-								aria-hidden="true"
-							></span>
-							<dt class="text-slate-400">{r.label}</dt>
-							<dd class="text-right text-slate-100 tabular-nums">
-								{r.text}<span class="sr-only"> ({STATUS_INFO[r.status].label})</span>
-							</dd>
-						{/each}
-					</dl>
-					<p class="mt-2 text-[10px] text-slate-500">Simulated readings</p>
-				</div>
-			{/if}
-			{#if impact}
-				<div class="mt-3 rounded-xl border border-white/10 bg-black/20 p-3 text-xs">
-					<div class="mb-2 flex items-center justify-between">
-						<span class="font-semibold tracking-wider text-slate-400">IMPACT</span>
-						{#if impact.active}
-							<span class="font-semibold text-slate-100">
-								≈ {compact.format(impact.affectedTotal)} residents affected
-							</span>
-						{/if}
-					</div>
-					{#if !impact.active}
-						<p class="text-slate-300">
-							Serves ≈ {compact.format(impact.dependentTotal)} residents in {impact.neighborhoods
-								.length} neighborhoods. No one is affected while it reads {STATUS_INFO[
-								impact.status
-							].label.toLowerCase()}.
-						</p>
-					{:else if !impact.neighborhoods.length}
-						<p class="text-slate-300">No housing on this level depends on it.</p>
-					{:else}
-						<table class="w-full">
-							<thead class="text-left text-[10px] text-slate-500">
-								<tr>
-									<th class="pb-1 font-normal">Neighborhood</th>
-									<th class="pb-1 text-right font-normal">Affected</th>
-									<th class="pb-1 text-right font-normal">Severity</th>
-								</tr>
-							</thead>
-							<tbody>
-								{#each impact.neighborhoods as n (n.id)}
-									{@const sev = STATUS_INFO[n.severity]}
-									<tr>
-										<td class="py-0.5 text-slate-300">{n.name}</td>
-										<td class="py-0.5 text-right text-slate-100 tabular-nums"
-											>≈ {compact.format(n.affected)}</td
-										>
-										<td class="py-0.5 text-right">
-											<span
-												class="rounded-full px-1.5 py-px font-semibold"
-												style="color:{sev.color};background:color-mix(in oklab, {sev.color} 13%, transparent)"
-												>{sev.label}</span
-											>
-										</td>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					{/if}
-					<p class="mt-2 text-[10px] leading-snug text-slate-500">
-						Simulated: each block depends on its nearest {p.sub.split(' · ')[0].toLowerCase()} facility
-						by tunnel distance. Critical cuts service to all of them, High risk to half.
-					</p>
-				</div>
-			{/if}
 			<div class="mt-3 flex gap-2">
 				<button
 					class="flex-1 rounded-full bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-500"

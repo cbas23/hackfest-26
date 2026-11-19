@@ -1,9 +1,8 @@
 <script lang="ts">
 	import { SHAFTS, SHAFT_COLORS } from '#lib/hollow/data.js';
 	import type { Place } from '#lib/hollow/nav.js';
-	import { STATUS_INFO } from '#lib/hollow/sensors.js';
-	import type { ImpactAssessment } from '#lib/hollow/impact.js';
 	import type { FloorSimulation } from '#lib/hollow/simulation.js';
+	import { POINT_INFO, POINT_KINDS } from '#lib/hollow/state.js';
 	import type { BlockSickness } from '#lib/hollow/sickness.js';
 	import { formatCompact, formatCount, formatPercent } from '#lib/hollow/format.js';
 	import SicknessScale from './sickness-scale.svelte';
@@ -20,7 +19,6 @@
 		place: p,
 		sim,
 		color,
-		impact,
 		sickness = null,
 		onclose,
 		class: className
@@ -29,13 +27,11 @@
 		/** The simulation of the place's floor. */
 		sim: FloorSimulation;
 		color: string;
-		impact: ImpactAssessment | null;
 		sickness?: BlockSickness | null;
 		onclose: () => void;
 		class?: string;
 	} = $props();
 
-	const sensors = $derived(sim.status(p));
 	const pf = $derived(sim.floor);
 </script>
 
@@ -97,12 +93,19 @@
 			{:else if p.kind !== 'block'}
 				{p.note}
 			{:else}
-				<span class={sim.lit[p.room.id] ? 'text-success' : 'text-foreground'}
-					>{sim.lit[p.room.id] ? 'Powered' : 'Blackout'}</span
-				>
-				· ≈ {formatCompact(pf.residents[p.room.id])} residents · {p.room.w}×{p.room.h} block, single door
+				≈ {formatCompact(pf.residents[p.room.id])} residents · {p.room.w}×{p.room.h} block, single door
 			{/if}
 		</p>
+
+		{#if p.kind === 'block'}
+			<div class="flex flex-wrap gap-1.5">
+				{#each POINT_KINDS as k (k)}
+					{@const info = POINT_INFO[k]}
+					{@const bad = sim.bad(k)[p.room.id]}
+					{@render pill(bad ? info.bad : info.good, bad ? info.color : 'var(--success)')}
+				{/each}
+			</div>
+		{/if}
 
 		{#if sickness}
 			<Separator />
@@ -116,79 +119,6 @@
 					{formatCount(sickness.sick)} of {formatCount(sickness.reported)} reported residents sick
 				</p>
 				<p class="text-[10px] text-muted-foreground">Simulated reports</p>
-			</div>
-		{/if}
-
-		{#if sensors}
-			{@const overall = STATUS_INFO[sensors.status]}
-			<Separator />
-			<div class="flex flex-col gap-2 text-xs">
-				<div class="flex items-center justify-between">
-					<span class="font-medium text-foreground">Sensors</span>
-					{@render pill(overall.label, overall.color)}
-				</div>
-				<dl class="grid grid-cols-[auto_1fr_auto] items-center gap-x-2 gap-y-1">
-					{#each sensors.readings as r (r.key)}
-						<span
-							class="size-2 rounded-full"
-							style="background:{STATUS_INFO[r.status].color}"
-							aria-hidden="true"
-						></span>
-						<dt class="text-muted-foreground">{r.label}</dt>
-						<dd class="text-right tabular-nums">
-							{r.text}<span class="sr-only"> ({STATUS_INFO[r.status].label})</span>
-						</dd>
-					{/each}
-				</dl>
-				<p class="text-[10px] text-muted-foreground">Simulated readings</p>
-			</div>
-		{/if}
-
-		{#if impact}
-			<Separator />
-			<div class="flex flex-col gap-2 text-xs">
-				<div class="flex items-center justify-between">
-					<span class="font-medium text-foreground">Impact</span>
-					{#if impact.active}
-						<span class="font-semibold">
-							≈ {formatCompact(impact.affectedTotal)} residents affected
-						</span>
-					{/if}
-				</div>
-				{#if !impact.active}
-					<p class="text-muted-foreground">
-						Serves ≈ {formatCompact(impact.dependentTotal)} residents in {impact.neighborhoods
-							.length} neighborhoods. No one is affected while it reads {STATUS_INFO[
-							impact.status
-						].label.toLowerCase()}.
-					</p>
-				{:else if !impact.neighborhoods.length}
-					<p class="text-muted-foreground">No housing on this level depends on it.</p>
-				{:else}
-					<table class="w-full">
-						<thead class="text-left text-[10px] text-muted-foreground">
-							<tr>
-								<th class="pb-1 font-normal">Neighborhood</th>
-								<th class="pb-1 text-right font-normal">Affected</th>
-								<th class="pb-1 text-right font-normal">Severity</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each impact.neighborhoods as n (n.id)}
-								{@const sev = STATUS_INFO[n.severity]}
-								<tr>
-									<td class="py-0.5 text-muted-foreground">{n.name}</td>
-									<td class="py-0.5 text-right tabular-nums">≈ {formatCompact(n.affected)}</td>
-									<td class="py-0.5 text-right">{@render pill(sev.label, sev.color)}</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				{/if}
-				<p class="text-[10px] leading-snug text-muted-foreground">
-					Simulated: each block depends on its nearest {p.sub.split(' · ')[0].toLowerCase()} facility
-					by tunnel distance. Critical cuts service to all of them, High risk to half.
-				</p>
 			</div>
 		{/if}
 	</Card.Content>

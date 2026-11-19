@@ -1,13 +1,12 @@
 /**
  * The Hollow's map: the generic tunnel-map renderer (`#lib/map`) dressed with Hollow
  * floors, plus the navigation visuals the Main Map needs: level changes, the all-levels
- * stack, hover/selection outlines, impact tint, alert pulse, pins and data lenses.
+ * stack, hover/selection outlines, pins and data lenses.
  *
  * The pieces live in `./scene/`. Extra visuals are add-ons that attach on first use, so
  * the core stays small: `routeOverlay`, `radarOverlay` and `levelTintOverlay` (see
  * `./scene/route.ts` etc.). Reach for `hollowMap.map` for anything else.
  */
-import type * as THREE from 'three';
 import type { Room, Point } from '#lib/tunnels/generate.js';
 import {
 	createMap,
@@ -18,7 +17,7 @@ import {
 } from '#lib/map/index.js';
 import { LEVELS } from './data.js';
 import { floorStyle, type MapLens, SHAFT_H, SHAFT_PART } from './mapStyle.js';
-import { cssHex, onThemeChange, tokenHex } from './theme.js';
+import { onThemeChange, tokenHex } from './theme.js';
 import { builtBounds, type Floor } from './world.js';
 import {
 	H,
@@ -95,12 +94,8 @@ export interface HollowMap {
 	setPins(pins: Pin[]): void;
 	/** Repaint every level with a data lens (e.g. sickness), or back to the normal look. */
 	setLens(lens: MapLens | null): void;
-	/** Repaint with the current lens after the data behind it changed (e.g. an alert was fixed). */
+	/** Repaint with the current lens after the data behind it changed (e.g. a point moved). */
 	refreshLens(): void;
-	/** Tint rooms on the shown floor (impact assessment) in any CSS colour; [] clears it. */
-	setImpact(rooms: { room: Room; color: string }[]): void;
-	/** Rooms on the shown floor that throb in a CSS colour (alerts); [] clears it. */
-	setAlertPulse(rooms: { room: Room; color: string }[]): void;
 	flyTo(x: number, y: number, opts?: { distance?: number; heading?: Point; tilt?: number }): void;
 	fitBounds(minX: number, minY: number, maxX: number, maxY: number): void;
 	zoomBy(factor: number): void;
@@ -221,11 +216,6 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 	// ── Highlights ──────────────────────────────────────────────────────────
 	const hover = createOutline(map, 0.55, { layer: currentLayer, isStacked });
 	const selection = createOutline(map, 1, { layer: currentLayer, isStacked });
-	let impact: OverlayHandle | null = null;
-	let lastImpact: { room: Room; color: string }[] = [];
-	let alertPulse: OverlayHandle | null = null;
-	let alertMats: THREE.Material[] = [];
-	let lastAlertPulse: { room: Room; color: string }[] = [];
 	let markers: MarkerHandle[] = [];
 
 	// ── Focus level (all-levels view) ───────────────────────────────────────
@@ -250,14 +240,6 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 		for (const l of map.layers()) l.setPartVisible(SHAFT_PART, !overview);
 		hover.sync();
 		selection.sync();
-		impact?.setVisible(!overview);
-		if (alertPulse) {
-			alertPulse.setVisible(!overview && !fx.sliding);
-			// A slow alarm throb: sharp rise, long fall.
-			const k = (now % 1400) / 1400;
-			const o = 0.15 + 0.6 * Math.pow(1 - k, 2.2);
-			for (const m of alertMats) m.opacity = o;
-		}
 	});
 
 	const hooks: HollowMapHooks = {
@@ -374,54 +356,6 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 			lens = next;
 			restyleAll();
 		},
-		setImpact(rooms) {
-			lastImpact = rooms;
-			impact?.remove();
-			impact = null;
-			const layer = currentLayer();
-			if (!rooms.length || !layer) return;
-			impact = map.addOverlay({
-				type: 'rects',
-				layer: layer.id,
-				rects: rooms.map(({ room: r, color }) => ({
-					x: r.x,
-					y: r.y,
-					w: r.w,
-					h: r.h,
-					z: layer.heightOf(r) + 0.06,
-					color: cssHex(color)
-				})),
-				opacity: 0.7,
-				visible: !overview
-			});
-		},
-		setAlertPulse(rooms) {
-			lastAlertPulse = rooms;
-			alertPulse?.remove();
-			alertPulse = null;
-			alertMats = [];
-			const layer = currentLayer();
-			if (!rooms.length || !layer) return;
-			alertPulse = map.addOverlay({
-				type: 'rects',
-				layer: layer.id,
-				rects: rooms.map(({ room: r, color }) => ({
-					x: r.x - 0.15,
-					y: r.y - 0.15,
-					w: r.w + 0.3,
-					h: r.h + 0.3,
-					z: layer.heightOf(r) + 0.08,
-					color: cssHex(color)
-				})),
-				opacity: 0.6,
-				visible: !overview
-			});
-			alertPulse.object.traverse((o) => {
-				const m = (o as THREE.Mesh).material;
-				if (m) alertMats.push(...(Array.isArray(m) ? m : [m]));
-			});
-			for (const m of alertMats) m.transparent = true;
-		},
 		flyTo: (x, y, o = {}) => map.camera.flyTo({ x, y, ...o }),
 		fitBounds: (minX, minY, maxX, maxY) =>
 			map.camera.fitBounds(minX, minY, maxX, maxY, { maxDistance: MAX_DISTANCE }),
@@ -442,8 +376,6 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 		for (const l of map.layers()) l.setTunnelTint(tunnelTint());
 		hover.repaint();
 		selection.repaint();
-		self.setImpact(lastImpact);
-		self.setAlertPulse(lastAlertPulse);
 		if (shaftColumns.length) {
 			for (const o of shaftColumns) o.remove();
 			shaftColumns = [];

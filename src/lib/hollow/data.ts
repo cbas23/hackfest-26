@@ -10,8 +10,6 @@ export interface FacilitySpec {
 	name: string;
 	/** Optional lore line; falls back to the kind's description. */
 	note?: string;
-	/** Sensor readings pinned to match the note (metric key → value; see `simConfig.ts`). */
-	readings?: Record<string, number>;
 }
 
 export interface Level {
@@ -133,8 +131,7 @@ export const LEVELS: Level[] = [
 			{
 				kind: 'clinic',
 				name: 'Clinic Nine',
-				note: 'Overwhelmed by lung sickness. Its patient count does not match Directorate reports.',
-				readings: { beds: 118 }
+				note: 'Overwhelmed by lung sickness. Its patient count does not match Directorate reports.'
 			},
 			{ kind: 'air', name: 'Warrens Air Exchange' },
 			{ kind: 'air', name: 'Stackhouse Vents' },
@@ -163,8 +160,7 @@ export const LEVELS: Level[] = [
 			{
 				kind: 'water',
 				name: 'The Drip',
-				note: 'Mid-level water recycler. Running at 40% capacity; water rations halved.',
-				readings: { output: 40 }
+				note: 'Mid-level water recycler. Running at 40% capacity; water rations halved.'
 			},
 			{ kind: 'air', name: 'Lowmarch Vents' },
 			{ kind: 'clinic', name: 'Lowmarch Clinic' }
@@ -187,8 +183,7 @@ export const LEVELS: Level[] = [
 			{
 				kind: 'water',
 				name: 'Recycler Array 7',
-				note: 'The largest water recycler in the Hollow. Three of eight units offline.',
-				readings: { output: 62.5 }
+				note: 'The largest water recycler in the Hollow. Three of eight units offline.'
 			},
 			{ kind: 'water', name: 'Sump Pumps' },
 			{ kind: 'air', name: 'Sump Vents' },

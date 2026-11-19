@@ -2,44 +2,23 @@
 	import { onMount, type Snippet } from 'svelte';
 	import type { Room } from '#lib/tunnels/generate.js';
 	import { LEVELS } from '#lib/hollow/data.js';
-	import { formatCompact, formatCount, formatDepth, formatPercent } from '#lib/hollow/format.js';
+	import { formatCount, formatDepth, formatPercent } from '#lib/hollow/format.js';
 	import { placeCentre, placeColor, type Place, type PlaceKind } from '#lib/hollow/nav.js';
 	import { createHollowMap, type HollowMap, type Pick } from '#lib/hollow/hollowMap.js';
-	import { STATUS_INFO, type Status } from '#lib/hollow/sensors.js';
 	import {
-		airflowTotals,
 		blockedTotals,
 		getHollow,
+		pointTotals,
 		sicknessTotals,
-		simulateFloor,
-		waterTotals
+		simulateFloor
 	} from '#lib/hollow/simulation.js';
-	import { isActive, type BlockedTunnelEvent } from '#lib/hollow/events.js';
+	import { POINT_INFO, type BlockedTunnel } from '#lib/hollow/state.js';
 	import { TUNNEL_H } from '#lib/hollow/mapStyle.js';
-	import { WATER_STEPS } from '#lib/hollow/water.js';
-	import { AIR_STEPS } from '#lib/hollow/airflow.js';
 	import LayersIcon from '@lucide/svelte/icons/layers';
-	import { connectLive, live } from '#lib/live/events.svelte.js';
-	import { radarOverlay } from '#lib/hollow/scene/radar.js';
+	import { connectLive, live } from '#lib/live/state.svelte.js';
 	import { floorBounds, type Floor } from '#lib/hollow/world.js';
-	import {
-		ALERT_INFO,
-		ALERT_KINDS,
-		alertTotals,
-		type AlertKind,
-		type HollowAlert
-	} from '#lib/hollow/alerts.js';
-	import { Tween } from 'svelte/motion';
-	import { cubicOut } from 'svelte/easing';
-	import AlertIcon from './alert-icon.svelte';
-	import { bestAction, floorState } from '#lib/hollow/response.js';
-	import { dispatch, resetResponse, response } from './response-state.svelte.js';
-	import WrenchIcon from '@lucide/svelte/icons/wrench';
-	import CircleCheckIcon from '@lucide/svelte/icons/circle-check';
-	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
-	import SirenIcon from '@lucide/svelte/icons/siren';
 	import SicknessScale from './sickness-scale.svelte';
-	import StepScale from './step-scale.svelte';
+	import StateLegend from './state-legend.svelte';
 	import TunnelLegend from './tunnel-legend.svelte';
 	import { home, openLens, registerMapNav, setAddress } from './home-state.svelte.js';
 	import { placeByKey } from './address.js';
@@ -56,7 +35,7 @@
 	import MinusIcon from '@lucide/svelte/icons/minus';
 	import ScanIcon from '@lucide/svelte/icons/scan';
 
-	// Events (blackouts, air, water, tunnels, sickness) come live from Convex.
+	// The state (power, water and air points, tunnels, sickness) comes live from Convex.
 	connectLive();
 	const hollow = getHollow();
 	const allFloors = () => LEVELS.map((l) => hollow.floor(l.index));
@@ -107,7 +86,7 @@
 		void live.version;
 		return selected ? simulateFloor(hollow.floor(selected.floor)) : null;
 	});
-	// Repaint the map whenever the events behind it change.
+	// Repaint the map whenever the state behind it changes.
 	$effect(() => {
 		void live.version;
 		scene?.refreshLens();
@@ -209,14 +188,12 @@
 		x: number;
 		y: number;
 		h: number;
-		kind: PlaceKind | 'level' | 'alert' | 'home' | 'blocked';
+		kind: PlaceKind | 'level' | 'home' | 'blocked';
 		level: number;
 		label: string;
 		color: string;
 		place?: Place;
-		status?: Status;
-		alert?: HollowAlert;
-		blocked?: BlockedTunnelEvent;
+		blocked?: BlockedTunnel;
 	}
 	/** Pin height above the floor, by kind: over the roof of its building. */
 	const pinHeight = (kind: PlaceKind) => (kind === 'shaft' ? 7.5 : kind === 'plant' ? 4.5 : 3.5);
@@ -236,7 +213,7 @@
 			: null
 	);
 	/**
-	 * Tunnels lens: a pulsing red dot on each active blocked tunnel, on the shown level or on
+	 * Tunnels lens: a pulsing red dot on each blocked tunnel, on the shown level or on
 	 * every level in the all-levels view. It sits on the stretch's middle tile.
 	 */
 	const blockedPins = $derived.by<PinSpec[]>(() => {
@@ -244,7 +221,7 @@
 		void live.version;
 		return (overview ? allFloors() : [floor]).flatMap((f) =>
 			simulateFloor(f)
-				.local.blockedTunnels.filter((e) => isActive(e) && e.tiles.length)
+				.local.blockedTunnels.filter((e) => e.tiles.length)
 				.map((e): PinSpec => {
 					const mid = e.tiles[Math.floor(e.tiles.length / 2)];
 					return {
@@ -278,25 +255,8 @@
 				};
 			}).concat(blockedPins, homePins);
 		}
-		void live.version;
-		const floorAlerts = alertMode ? floorState(floor) : null;
-		const alertPins: PinSpec[] = floorAlerts
-			? floorAlerts.active
-					.filter((a) => !home.alertFilter || a.kind === home.alertFilter)
-					.map((a) => ({
-						key: `alert-${a.id}`,
-						x: a.x,
-						y: a.y,
-						h: 5,
-						level: levelIndex,
-						kind: 'alert',
-						label: a.title,
-						color: STATUS_INFO[a.severity].color,
-						alert: a
-					}))
-			: [];
 		return sim.places
-			.filter((p) => p.kind !== 'block' && !floorAlerts?.sources.has(p.room.id))
+			.filter((p) => p.kind !== 'block')
 			.map((p): PinSpec => ({
 				key: p.key,
 				...placeCentre(p),
@@ -305,10 +265,9 @@
 				kind: p.kind,
 				label: p.label,
 				color: placeColor(p),
-				place: p,
-				status: sim.status(p)?.status
+				place: p
 			}))
-			.concat(alertPins, blockedPins, homePins);
+			.concat(blockedPins, homePins);
 	});
 	const pinEls = $state<Record<string, HTMLElement>>({});
 	$effect(() => {
@@ -320,113 +279,24 @@
 	});
 	const showNames = $derived(distance < 200);
 
-	// ── Impact assessment (selected facility → affected neighborhoods) ──────
-	const impact = $derived(selected && selectedSim ? selectedSim.impact(selected) : null);
-	$effect(() => {
-		const show = impact?.active && impact.facility.floor === levelIndex;
-		scene?.setImpact(
-			show
-				? impact.neighborhoods.flatMap((n) =>
-						n.blocks.map((id) => ({
-							room: floor.map.rooms[id],
-							color: STATUS_INFO[n.severity].color
-						}))
-					)
-				: []
-		);
-	});
-
 	// ── Data lens (driven by the open sidebar section) ──────────────────────
 	const lens = $derived(openLens());
-	const alertMode = $derived(!!lens?.startsWith('alerts'));
 	$effect(() => scene?.setLens(lens));
+	/** The open point lens's kind (power, water, air), if any. */
+	const pointKind = $derived(lens === 'power' || lens === 'water' || lens === 'air' ? lens : null);
 	/** Sick share across the shown level (or every level in the stacked view). */
 	const sickTotals = $derived.by(() => {
 		void live.version;
 		return lens === 'sickness' ? sicknessTotals(overview ? allFloors() : [floor]) : null;
 	});
-	/** Headline numbers for the water, airflow and tunnels lenses. */
-	const waterNow = $derived.by(() => {
+	/** Headline numbers for the power, water, air and tunnels lenses. */
+	const pointNow = $derived.by(() => {
 		void live.version;
-		return lens === 'water' ? waterTotals(overview ? allFloors() : [floor]) : null;
-	});
-	const airNow = $derived.by(() => {
-		void live.version;
-		return lens === 'airflow' ? airflowTotals(overview ? allFloors() : [floor]) : null;
+		return pointKind ? pointTotals(overview ? allFloors() : [floor], pointKind) : null;
 	});
 	const blockedNow = $derived.by(() => {
 		void live.version;
 		return lens === 'tunnels' ? blockedTotals(overview ? allFloors() : [floor]) : null;
-	});
-	// ── Alerts lens ─────────────────────────────────────────────────────────
-	const alertList = $derived.by(() => {
-		if (!alertMode) return null;
-		const floors = overview ? allFloors() : [floor];
-		void live.version;
-		return floors.flatMap((f) => floorState(f).active);
-	});
-	/** Fixes so far across the shown levels, and the next best one. */
-	const fixedCount = $derived.by(() => {
-		if (!alertMode) return 0;
-		void live.version;
-		const floors = overview ? allFloors() : [floor];
-		return floors.reduce((n, f) => n + floorState(f).fixed.length, 0);
-	});
-	const next = $derived.by(() => {
-		if (!alertMode) return null;
-		void live.version;
-		return bestAction(overview ? allFloors() : [floor]);
-	});
-	/** The outcome banner shows for a few seconds after each fix. */
-	let banner = $state(false);
-	$effect(() => {
-		if (!response.last) return;
-		banner = true;
-		const t = setTimeout(() => (banner = false), 4500);
-		return () => clearTimeout(t);
-	});
-	/** Totals over every kind (the tiles), and over the filtered kind (headline, bar). */
-	const allTotals = $derived(alertList ? alertTotals(alertList) : null);
-	const shownList = $derived(
-		alertList?.filter((a) => !home.alertFilter || a.kind === home.alertFilter) ?? null
-	);
-	const totals = $derived(shownList ? alertTotals(shownList) : null);
-	const toggleFilter = (k: AlertKind) => (home.alertFilter = home.alertFilter === k ? null : k);
-	const TILE_LABEL: Record<AlertKind, string> = {
-		blackout: 'In the dark',
-		air: 'Bad air',
-		water: 'Unsafe water'
-	};
-	const SEVERITIES: Status[] = ['critical', 'high', 'warning'];
-	const bySeverity = $derived(
-		SEVERITIES.map((s) => ({ s, n: shownList?.filter((a) => a.severity === s).length ?? 0 }))
-	);
-	const tweenOpts = { duration: 900, easing: cubicOut };
-	const countT = new Tween(0, tweenOpts);
-	const kindT: Record<AlertKind, Tween<number>> = {
-		blackout: new Tween(0, tweenOpts),
-		air: new Tween(0, tweenOpts),
-		water: new Tween(0, tweenOpts)
-	};
-	$effect(() => {
-		countT.set(totals?.count ?? 0);
-		for (const k of ALERT_KINDS) kindT[k].set(allTotals?.residents[k] ?? 0);
-	});
-	// The worst blocks on the shown level throb in the 3D map.
-	$effect(() => {
-		if (!alertMode || overview) {
-			scene?.setAlertPulse([]);
-			return;
-		}
-		const rooms: { room: Room; color: string }[] = [];
-		void live.version;
-		for (const a of floorState(floor).active) {
-			if (a.severity !== 'critical' || (home.alertFilter && a.kind !== home.alertFilter)) continue;
-			const color =
-				a.kind === 'blackout' ? STATUS_INFO.critical.color : STATUS_INFO[a.severity].color;
-			for (const id of a.blocks) rooms.push({ room: floor.map.rooms[id], color });
-		}
-		scene?.setAlertPulse(rooms);
 	});
 	const selectedSickness = $derived(
 		lens === 'sickness' && selected?.kind === 'block' && selectedSim
@@ -456,10 +326,7 @@
 			goTo,
 			setOverview,
 			focusPlace,
-			focus,
-			crew: (at) =>
-				radarOverlay(s).set(at ? { ...at, radius: 14, color: STATUS_INFO.normal.color } : null),
-			refresh: () => s.refreshLens()
+			focus
 		});
 		s.showFloor(hollow.floor(0), 0);
 		s.fitBounds(...floorBounds(hollow.floor(0)));
@@ -612,51 +479,6 @@
 								class="relative size-3 rounded-full border border-[color-mix(in_oklch,var(--map-tunnels-blocked)_50%,black)] bg-(--map-tunnels-blocked) shadow-[0_0_8px_var(--map-tunnels-blocked)]"
 							></span>
 						</button>
-					{:else if p.alert}
-						{@const a = p.alert}
-						{@const busy = response.working === a.id}
-						<button
-							class="pointer-events-auto absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center"
-							onclick={() => focus(a.floor, a.x, a.y)}
-							aria-label="{a.title}: {a.where}"
-						>
-							<span class="relative grid size-8 place-items-center">
-								{#if a.kind === 'water' && a.severity !== 'warning'}
-									{#each [0, 0.7, 1.4] as delay (delay)}
-										<span
-											class="alert-ripple absolute inset-0 rounded-full border"
-											style="border-color:{ALERT_INFO.water.color};animation-delay:{delay}s"
-										></span>
-									{/each}
-								{:else if a.severity !== 'warning'}
-									<span
-										class="alert-ring absolute inset-0 rounded-full border-2"
-										style="border-color:{p.color}"
-									></span>
-									<span
-										class="alert-ring absolute inset-0 rounded-full border-2"
-										style="border-color:{p.color};animation-delay:0.7s"
-									></span>
-								{/if}
-								<span
-									class="relative grid size-7 place-items-center rounded-full border-2 border-background text-white shadow-lg transition-colors"
-									style="background:{busy
-										? STATUS_INFO.normal.color
-										: p.color};box-shadow:0 0 14px {busy ? STATUS_INFO.normal.color : p.color}"
-								>
-									{#if busy}<WrenchIcon class="size-3.5 animate-spin" />{:else}<AlertIcon
-											kind={a.kind}
-										/>{/if}
-								</span>
-							</span>
-							{#if showNames}
-								<span
-									class="mt-0.5 rounded px-1 text-[10px] font-bold tracking-wide whitespace-nowrap uppercase"
-									style="color:{p.color};text-shadow:0 0 3px var(--background),0 0 6px var(--background)"
-									>{a.title}</span
-								>
-							{/if}
-						</button>
 					{:else if p.place}
 						{@const place = p.place}
 						<button
@@ -664,20 +486,11 @@
 							onclick={() => focusPlace(place)}
 							aria-label={p.label}
 						>
-							<span class="relative">
-								<PlaceIcon
-									kind={place.kind}
-									color={p.color}
-									size={place.kind === 'shaft' ? 28 : 24}
-								/>
-								{#if p.status}
-									<span
-										class="absolute -top-0.5 -right-0.5 size-2.5 rounded-full border-2 border-background"
-										style="background:{STATUS_INFO[p.status].color}"
-										title={STATUS_INFO[p.status].label}
-									></span>
-								{/if}
-							</span>
+							<PlaceIcon
+								kind={place.kind}
+								color={p.color}
+								size={place.kind === 'shaft' ? 28 : 24}
+							/>
 							{#if showNames || p.kind === 'shaft'}
 								<span
 									class="mt-0.5 text-xs font-semibold whitespace-nowrap text-foreground [text-shadow:0_0_3px_var(--background),0_0_6px_var(--background)]"
@@ -689,162 +502,6 @@
 				</div>
 			{/each}
 		</div>
-
-		{#if totals && totals.critical > 0}
-			<div
-				class="alert-vignette pointer-events-none absolute inset-0 z-[5]"
-				aria-hidden="true"
-			></div>
-		{/if}
-
-		{#if totals}
-			<div
-				class="alert-in absolute top-4 left-4 z-10 flex w-64 flex-col gap-2.5 overflow-hidden rounded-lg border border-destructive/40 bg-background/90 p-3 text-xs shadow-[0_0_30px_-8px_var(--destructive)] backdrop-blur"
-				role="status"
-			>
-				<div class="flex items-center justify-between">
-					<span class="flex items-center gap-2 font-semibold tracking-wide uppercase">
-						<SirenIcon class="alert-blink size-4 text-destructive" aria-hidden="true" />
-						Alerts
-					</span>
-					<span class="flex items-center gap-1.5 text-muted-foreground">
-						<span class="relative flex size-2">
-							<span class="absolute inset-0 animate-ping rounded-full bg-destructive opacity-75"
-							></span>
-							<span class="relative size-2 rounded-full bg-destructive"></span>
-						</span>
-						LIVE · {overview ? 'All levels' : level.code}
-					</span>
-				</div>
-				<div class="flex items-baseline gap-2">
-					<span class="text-3xl font-bold text-foreground tabular-nums"
-						>{Math.round(countT.current)}</span
-					>
-					<span class="text-muted-foreground"
-						>active · <span class="font-semibold text-destructive">{totals.critical} critical</span
-						></span
-					>
-				</div>
-				<div class="flex h-1.5 w-full gap-0.5 overflow-hidden rounded-full bg-muted">
-					{#each bySeverity as { s, n } (s)}
-						{#if n}
-							<span
-								class="h-full transition-[flex-grow] duration-700"
-								style="flex-grow:{n};background:{STATUS_INFO[s].color}"
-								title="{n} {STATUS_INFO[s].label}"
-							></span>
-						{/if}
-					{/each}
-				</div>
-				<div class="grid grid-cols-3 gap-1.5" role="group" aria-label="Filter alerts">
-					{#each ALERT_KINDS as k (k)}
-						{@const on = home.alertFilter === k}
-						{@const dim = home.alertFilter && !on}
-						<button
-							type="button"
-							aria-pressed={on}
-							onclick={() => toggleFilter(k)}
-							class={cn(
-								'flex flex-col gap-0.5 rounded-md border bg-card/60 p-1.5 text-left transition-all outline-none hover:-translate-y-px focus-visible:ring-2 focus-visible:ring-ring',
-								dim && 'opacity-45'
-							)}
-							style="border-color:{on ? ALERT_INFO[k].color : 'var(--border)'};{on
-								? `box-shadow:0 0 14px -4px ${ALERT_INFO[k].color}`
-								: ''}"
-						>
-							<span class="flex items-center gap-1 text-[10px] text-muted-foreground">
-								<span style="color:{ALERT_INFO[k].color}"
-									><AlertIcon kind={k} class="size-3" /></span
-								>
-								{TILE_LABEL[k]}
-							</span>
-							<span class="text-sm font-semibold text-foreground tabular-nums"
-								>{formatCompact(kindT[k].current)}</span
-							>
-							<span class="text-[10px] text-muted-foreground tabular-nums"
-								>{allTotals?.counts[k] ?? 0} alerts</span
-							>
-						</button>
-					{/each}
-				</div>
-				{#if next}
-					<!-- The one thing to do now: the fix that helps the most residents. -->
-					<div
-						class="flex flex-col gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 p-2"
-					>
-						<span
-							class="text-[10px] font-semibold tracking-wide text-emerald-600 uppercase dark:text-emerald-400"
-							>Fix first</span
-						>
-						<span class="flex items-center gap-1.5 text-foreground">
-							<span style="color:{ALERT_INFO[next.alert.kind].color}"
-								><AlertIcon kind={next.alert.kind} class="size-3.5" /></span
-							>
-							<span class="truncate font-medium">{next.verb}</span>
-							<span class="truncate text-muted-foreground"
-								>· {next.alert.where.split(' · ')[0]}</span
-							>
-						</span>
-						<span class="text-muted-foreground">
-							Helps <span class="font-semibold text-foreground tabular-nums"
-								>{formatCompact(next.residents)}</span
-							>
-							{#if next.clears.length > 1}
-								· clears <span class="font-semibold text-foreground">{next.clears.length}</span> alerts
-							{/if}
-						</span>
-						<Button
-							size="sm"
-							class="h-7 bg-emerald-600 text-white hover:bg-emerald-500"
-							disabled={!!response.working}
-							onclick={() => dispatch(next)}
-						>
-							{#if response.working}<WrenchIcon class="animate-spin" /> Crew working…{:else}<WrenchIcon
-								/> Dispatch crew{/if}
-						</Button>
-					</div>
-				{:else}
-					<div
-						class="flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 p-2 text-emerald-600 dark:text-emerald-400"
-					>
-						<CircleCheckIcon class="size-4" /> All clear here
-					</div>
-				{/if}
-				<div class="flex items-center justify-between text-[10px] text-muted-foreground">
-					<span>Tap a tile to filter · simulated</span>
-					{#if fixedCount}
-						<button
-							type="button"
-							class="flex items-center gap-1 hover:text-foreground"
-							onclick={resetResponse}
-							><RotateCcwIcon class="size-3" /> Reset {fixedCount} fixed</button
-						>
-					{/if}
-				</div>
-			</div>
-		{/if}
-
-		{#if alertMode && banner && response.last}
-			{#key response.last.id}
-				<div
-					class="alert-in pointer-events-none absolute top-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-3 rounded-full border border-emerald-500/50 bg-background/95 py-2 pr-4 pl-2 text-sm shadow-[0_0_30px_-6px_#10b981] backdrop-blur"
-					role="status"
-				>
-					<span class="grid size-7 place-items-center rounded-full bg-emerald-500 text-white">
-						<CircleCheckIcon class="size-4" />
-					</span>
-					<span>
-						<span class="font-semibold">{response.last.verb}</span>
-						<span class="text-muted-foreground">· {response.last.where}</span>
-					</span>
-					<span class="text-emerald-600 tabular-nums dark:text-emerald-400">
-						{response.last.count} alert{response.last.count === 1 ? '' : 's'} cleared · {formatCompact(
-							response.last.residents
-						)} helped
-					</span>
-				</div>
-			{/key}
-		{/if}
 
 		{#if home.pickingHome}
 			<div
@@ -884,28 +541,22 @@
 				</p>
 			{/snippet}
 			{@render lensPanel('Lung sickness', sickBody)}
-		{:else if waterNow}
-			{#snippet waterBody()}
-				<StepScale steps={WATER_STEPS} />
+		{:else if pointNow && pointKind}
+			{@const info = POINT_INFO[pointKind]}
+			{#snippet pointBody()}
+				<StateLegend kind={pointKind!} />
 				<p class="text-muted-foreground">
-					<span class="font-semibold text-foreground tabular-nums"
-						>{formatPercent(waterNow!.share)}</span
-					>
-					of {formatCount(waterNow!.residents)} residents on unsafe or toxic water
+					{#if pointNow!.bad}
+						<span class="font-semibold text-foreground tabular-nums"
+							>{formatPercent(pointNow!.share)}</span
+						>
+						of {formatCount(pointNow!.residents)} residents with {info.bad.toLowerCase()}
+					{:else}
+						{info.good} everywhere
+					{/if}
 				</p>
 			{/snippet}
-			{@render lensPanel('Water health', waterBody)}
-		{:else if airNow}
-			{#snippet airBody()}
-				<StepScale steps={AIR_STEPS} />
-				<p class="text-muted-foreground">
-					<span class="font-semibold text-foreground tabular-nums"
-						>{formatPercent(airNow!.share)}</span
-					>
-					of {formatCount(airNow!.residents)} residents in still or weak air
-				</p>
-			{/snippet}
-			{@render lensPanel('Air flow', airBody)}
+			{@render lensPanel(info.label, pointBody)}
 		{:else if blockedNow}
 			{#snippet tunnelBody()}
 				<TunnelLegend class="text-muted-foreground" />
@@ -972,7 +623,6 @@
 				place={selected}
 				sim={selectedSim!}
 				color={placeColor(selected)}
-				{impact}
 				sickness={selectedSickness}
 				onclose={() => select(null)}
 			/>

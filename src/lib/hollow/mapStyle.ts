@@ -4,21 +4,15 @@ import { hash01, shade, type LayerStyle, type Prop, type RoomLook } from '#lib/m
 import { FACILITY_INFO, LEVELS, SHAFTS, SHAFT_COLORS, type FacilityKind } from './data.js';
 import type { Floor } from './world.js';
 import { sickStep } from './sickness.js';
-import { waterStep } from './water.js';
-import { airStep } from './airflow.js';
 import { simulateFloor } from './simulation.js';
+import type { PointKind } from './state.js';
 import { cssColor, token, type Token } from './theme.js';
-import type { AlertKind } from './alerts.js';
-import { floorState } from './response.js';
-import type { Status } from './sensors.js';
 
 /** A data view painted over the map instead of its normal palette. */
-export type MapLens =
-	'sickness' | 'water' | 'airflow' | 'tunnels' | 'alerts' | `alerts-${AlertKind}`;
+export type MapLens = 'sickness' | 'tunnels' | PointKind;
 
-/** The five colours of a graded lens (`--map-<name>-1` … `-5`). */
-const fiveSteps = (name: 'sick' | 'water' | 'air') =>
-	([1, 2, 3, 4, 5] as const).map((i) => token(`map-${name}-${i}`));
+/** The five colours of the sickness lens (`--map-sick-1` … `-5`). */
+const sickSteps = () => ([1, 2, 3, 4, 5] as const).map((i) => token(`map-sick-${i}`));
 
 /** Tunnels under a data lens: a flat, very dark trace just above the floor. */
 const lensTunnel = () => {
@@ -170,39 +164,25 @@ function facilityProps(kind: FacilityKind, r: Room, y: number): Prop[] {
 	return out;
 }
 
-/** How a Hollow floor looks: tunnels, housing (dark in blackout), farms, plants, shafts, facilities. */
+/** How a Hollow floor looks: tunnels, housing (dark without power), farms, plants, shafts, facilities. */
 export function floorStyle(floor: Floor, lens: MapLens | null = null): LayerStyle {
 	const c = paletteFor(floor.index);
 	const sim = simulateFloor(floor);
+	/** The sickness lens colours each housing block by its sick share, in five steps. */
+	const sick = lens === 'sickness' ? sickSteps() : null;
 	/**
-	 * Graded lenses colour each housing block by one score in five steps; the facilities
-	 * behind the score (recyclers, ventilation plants) stand up in their accent colour.
+	 * A point lens (power, water, air) colours each housing block good or bad; the
+	 * facilities behind the kind (ventilation, water) stand up in their accent colour.
 	 */
-	const graded =
-		lens === 'sickness'
-			? { data: sim.sickness, steps: fiveSteps('sick'), step: sickStep, source: null }
-			: lens === 'water'
-				? { data: sim.water, steps: fiveSteps('water'), step: waterStep, source: 'water' }
-				: lens === 'airflow'
-					? { data: sim.airflow, steps: fiveSteps('air'), step: airStep, source: 'air' }
-					: null;
+	const kind = lens === 'power' || lens === 'water' || lens === 'air' ? lens : null;
+	const state = kind && {
+		bad: sim.bad(kind),
+		badRoof: token(`map-${kind}-bad`),
+		goodRoof: token('map-good'),
+		source: kind === 'power' ? null : kind
+	};
 	const tunnels = lens === 'tunnels';
 	const muted = { wall: token('map-muted-wall'), roof: token('map-muted-roof') };
-	const alerts = lens?.startsWith('alerts') ? floorState(floor) : null;
-	/** 'alerts' shows every kind; 'alerts-water' etc. only that one. */
-	const only = lens?.startsWith('alerts-') ? (lens.slice(7) as AlertKind) : null;
-	const show = (k: AlertKind) => !only || only === k;
-	const scale = (kind: 'air' | 'water'): Record<Status, THREE.Color> => ({
-		normal: muted.roof,
-		warning: token(`map-alert-${kind}-1`),
-		high: token(`map-alert-${kind}-2`),
-		critical: token(`map-alert-${kind}-3`)
-	});
-	const air = scale('air');
-	const water = scale('water');
-	const rank = { normal: 0, warning: 1, high: 2, critical: 3 } as const;
-	const darkRoof = token('map-alert-dark-roof');
-	const darkWall = token('map-alert-dark-wall');
 	const tunnelRoomRoof = token('map-tunnels-room-roof');
 	const tunnelRoomWall = token('map-tunnels-room-wall');
 	const blocked = token('map-tunnels-blocked');
@@ -235,10 +215,10 @@ export function floorStyle(floor: Floor, lens: MapLens | null = null): LayerStyl
 			const height = roomHeight(floor, r);
 			const facility = floor.facilities.get(r.id);
 			const base = { height, door: null };
-			if (graded && r.kind !== 'gate') {
-				// Graded lens (sickness, water, airflow): houses in five steps; every other
-				// chamber recedes so the scale reads at a glance.
-				if (facility && facility.kind === graded.source) {
+			if ((sick || state) && r.kind !== 'gate') {
+				// Data lens: houses by their score or state; every other chamber recedes so the
+				// colours read at a glance.
+				if (facility && state && facility.kind === state.source) {
 					const accent = cssColor(FACILITY_INFO[facility.kind].color);
 					return {
 						...base,
@@ -247,38 +227,16 @@ export function floorStyle(floor: Floor, lens: MapLens | null = null): LayerStyl
 						height: height + 1
 					};
 				}
-				const s = graded.data[r.id];
-				if (!s) return { ...base, ...muted };
-				const roof = graded.steps[graded.step(s.score)];
+				if (!(floor.residents[r.id] > 0)) return { ...base, ...muted };
+				const s = sim.sickness[r.id];
+				let roof: THREE.Color;
+				if (sick) roof = s ? sick[sickStep(s.score)] : muted.roof;
+				else roof = state!.bad[r.id] ? state!.badRoof : state!.goodRoof;
 				return { ...base, roof, wall: roof.clone().multiplyScalar(0.72) };
 			}
 			if (tunnels && r.kind !== 'gate')
 				// Tunnels lens: one flat block, below the tunnels, so the network reads first.
 				return { height: 1, door: null, roof: tunnelRoomRoof, wall: tunnelRoomWall };
-			if (alerts && r.kind !== 'gate') {
-				// Alerts lens: blackouts sink to near-black with red walls; air and water alerts
-				// glow by severity (the worse one wins where both apply); failing facilities
-				// rise and stay bright; everything else recedes.
-				const a = alerts.blocks.get(r.id);
-				const airS = show('air') ? a?.air : undefined;
-				const waterS = show('water') ? a?.water : undefined;
-				const tint =
-					waterS && (!airS || rank[waterS] > rank[airS]) ? water[waterS] : airS ? air[airS] : null;
-				if (show('blackout') && a?.blackout)
-					return { ...base, roof: darkRoof, wall: tint ?? darkWall };
-				if (tint) return { ...base, roof: tint, wall: tint.clone().multiplyScalar(0.7) };
-				const src = alerts.sources.get(r.id);
-				if (src && show(src)) {
-					const accent = cssColor(FACILITY_INFO[src as 'air' | 'water'].color);
-					return {
-						...base,
-						roof: accent,
-						wall: accent.clone().multiplyScalar(0.6),
-						height: height + 1
-					};
-				}
-				return { ...base, ...muted };
-			}
 			if (facility) {
 				const accent = cssColor(FACILITY_INFO[facility.kind].color);
 				return {
@@ -344,8 +302,8 @@ export function floorStyle(floor: Floor, lens: MapLens | null = null): LayerStyl
 				return { ...base, wall: c.plantWall, roof: c.plantRoof, props };
 			}
 			if (r.kind === 'room') {
-				// Habitation: muted; blocks in blackout go darker.
-				const lit = sim.lit[r.id];
+				// Habitation: muted; blocks without power go darker.
+				const lit = !sim.bad('power')[r.id];
 				return {
 					...base,
 					wall: lit ? c.placeWall : c.blockWallDark,

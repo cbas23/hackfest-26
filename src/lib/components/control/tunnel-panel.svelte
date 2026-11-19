@@ -1,21 +1,19 @@
 <script lang="ts">
-	import { BLOCKED_TILES, isActive } from '#lib/hollow/events.js';
+	import { BLOCKED_TILES } from '#lib/hollow/state.js';
 	import { SIM } from '#lib/hollow/simConfig.js';
 	import { getHollow, simulateFloor } from '#lib/hollow/simulation.js';
-	import { live } from '#lib/live/events.svelte.js';
+	import { live } from '#lib/live/state.svelte.js';
 	import { Slider } from '#lib/components/ui/slider/index.js';
 	import * as ToggleGroup from '#lib/components/ui/toggle-group/index.js';
-	import EventRow from './event-row.svelte';
-	import { control } from './control-state.svelte.js';
+	import StateRow from './state-row.svelte';
+	import { control, removeBlockedTunnel } from './control-state.svelte.js';
 
 	const hollow = getHollow();
 	const sim = $derived.by(() => {
 		void live.version;
 		return simulateFloor(hollow.floor(control.level));
 	});
-	const rows = $derived(
-		[...sim.local.blockedTunnels].sort((a, b) => Number(isActive(b)) - Number(isActive(a)))
-	);
+	const rows = $derived(sim.local.blockedTunnels);
 </script>
 
 <div class="flex flex-col gap-3">
@@ -54,11 +52,11 @@
 	{#if rows.length}
 		<ul class="flex flex-col gap-1.5">
 			{#each rows as t (t.id)}
-				<EventRow
-					event={{ table: 'blockedTunnels', id: t.id }}
-					active={isActive(t)}
+				<StateRow
 					title={t.reason}
 					sub="{t.tiles.length} tiles from {t.tiles[0].x}, {t.tiles[0].y}"
+					color="var(--map-tunnels-blocked)"
+					onremove={() => removeBlockedTunnel(t.id)}
 				/>
 			{/each}
 		</ul>

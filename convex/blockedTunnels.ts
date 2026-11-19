@@ -8,7 +8,7 @@ export const list = query({
 });
 
 export const add = mutation({
-	args: blockedTunnel.omit('resolvedAt'),
+	args: blockedTunnel,
 	handler: (ctx, args) => {
 		checkLevel(args.level);
 		checkTiles(args.tiles);
@@ -16,13 +16,7 @@ export const add = mutation({
 	}
 });
 
-export const update = mutation({
-	args: {
-		id: v.id('blockedTunnels'),
-		patch: blockedTunnel.pick('tiles', 'reason', 'note').partial()
-	},
-	handler: async (ctx, { id, patch }) => {
-		if (patch.tiles) checkTiles(patch.tiles);
-		await ctx.db.patch(id, patch);
-	}
+export const remove = mutation({
+	args: { id: v.id('blockedTunnels') },
+	handler: (ctx, { id }) => ctx.db.delete(id)
 });

@@ -5,13 +5,13 @@
  * more, larger and hotter hotspots, and the background rate also falls with depth.
  *
  * Where the hotspots fall and how strong they are comes from the shared `SicknessSettings`
- * (an event in Convex, edited in the control center); the same settings always give the same
+ * (shared state in Convex, edited in the control center); the same settings always give the same
  * map. The fixed parts of the model are in `SIM.sickness`.
  */
 import { perFloorWith, type Floor } from './world.js';
 import { mulberry32 } from '#lib/random.js';
 import { HOLLOW_SEED } from './data.js';
-import type { SicknessSettings } from './events.js';
+import type { SicknessSettings } from './state.js';
 import { SIM, spread, streamSeed } from './simConfig.js';
 
 const C = SIM.sickness;

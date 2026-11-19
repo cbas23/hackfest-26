@@ -141,18 +141,12 @@
 	--map-sick-3: color-mix(in oklch, var(--primary) 65%, var(--border));
 	--map-sick-4: var(--primary);
 	--map-sick-5: color-mix(in oklch, var(--primary) 55%, var(--chart-2));
-	/* Water health lens, clean → toxic: slate, clouding lavender, violet, then a toxic fuchsia glow. */
-	--map-water-1: color-mix(in oklch, oklch(0.6 0.12 295) 8%, var(--border));
-	--map-water-2: color-mix(in oklch, oklch(0.64 0.13 295) 55%, var(--border));
-	--map-water-3: oklch(0.6 0.16 297);
-	--map-water-4: oklch(0.52 0.23 308);
-	--map-water-5: oklch(0.7 0.27 330);
-	/* Airflow lens, diverging: still air is dusty ochre, the middle recedes, strong flow is bright aqua. */
-	--map-air-1: oklch(0.66 0.14 62);
-	--map-air-2: oklch(0.6 0.075 72);
-	--map-air-3: color-mix(in oklch, oklch(0.72 0.06 190) 10%, var(--border));
-	--map-air-4: color-mix(in oklch, oklch(0.76 0.12 192) 62%, var(--border));
-	--map-air-5: oklch(0.87 0.15 178);
+	/* Power, water and air lenses: good blocks recede to a faint green, bad ones glow in their
+	   kind's colour (also used for their notices and control-center points). */
+	--map-good: color-mix(in oklch, var(--success) 18%, var(--border));
+	--map-power-bad: oklch(0.64 0.21 25);
+	--map-water-bad: oklch(0.7 0.27 330);
+	--map-air-bad: oklch(0.72 0.15 62);
 	/* Tunnels lens: a slate-grey network, darker than the usual one, over see-through
 	   chambers; blocked sections are painted red. */
 	--map-tunnels-road: color-mix(
@@ -167,17 +161,6 @@
 	--map-tunnels-room-wall: color-mix(in oklch, var(--background) 40%, black);
 	--map-tunnels-blocked: var(--destructive);
 	/* Routes, hover/selection outlines and the radar sweep. */
-	/* Alerts lens: blackouts sink to near-black with a red edge; bad air glows teal → red. */
-	--map-alert-dark-roof: color-mix(in oklch, var(--destructive) 12%, black);
-	--map-alert-dark-wall: color-mix(in oklch, var(--destructive) 70%, black);
-	--map-alert-air-1: color-mix(in oklch, oklch(0.78 0.13 200) 70%, var(--border));
-	--map-alert-air-2: oklch(0.75 0.17 60);
-	--map-alert-air-3: var(--destructive);
-	/* Unsafe water: clear blue going murky green-brown, then toxic. */
-	--map-alert-water-1: color-mix(in oklch, oklch(0.72 0.12 230) 65%, var(--border));
-	--map-alert-water-2: oklch(0.62 0.12 120);
-	--map-alert-water-3: oklch(0.55 0.13 85);
-
 	--map-route: var(--primary);
 	--map-route-border: var(--foreground);
 	--map-route-dim: color-mix(in oklch, var(--muted-foreground) 80%, var(--background));
@@ -189,7 +172,7 @@
 }
 
 /*
- * Hollow domain colours: shaft status, facility kinds and sensor status. The UI uses them
+ * Hollow domain colours: shaft status, facility kinds and notice severity. The UI uses them
  * as `var()`s and the 3D map resolves them through `theme.ts`, so both repaint together.
  */
 :root {
@@ -275,110 +258,18 @@
 	}
 }
 
-/* ── Alerts ─────────────────────────────────────────────────────────────── */
+/* ── Map banners ────────────────────────────────────────────────────────── */
 @keyframes alert-in {
 	from {
 		opacity: 0;
 		transform: translateX(-10px);
 	}
 }
-@keyframes alert-sweep {
-	from {
-		transform: translateX(-100%);
-	}
-	to {
-		transform: translateX(250%);
-	}
-}
-@keyframes alert-vignette {
-	0%,
-	100% {
-		opacity: 0.25;
-	}
-	12% {
-		opacity: 1;
-	}
-}
-@keyframes alert-ring {
-	from {
-		transform: scale(0.6);
-		opacity: 0.9;
-	}
-	to {
-		transform: scale(2.4);
-		opacity: 0;
-	}
-}
-@keyframes alert-blink {
-	50% {
-		opacity: 0.25;
-	}
-}
 .alert-in {
 	animation: alert-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
-/* A light sweep across critical alerts. */
-.alert-critical::after {
-	content: '';
-	position: absolute;
-	inset: 0;
-	width: 40%;
-	background: linear-gradient(
-		90deg,
-		transparent,
-		color-mix(in oklab, var(--sev) 22%, transparent),
-		transparent
-	);
-	animation: alert-sweep 2.4s ease-in-out infinite;
-	pointer-events: none;
-}
-.alert-vignette {
-	box-shadow: inset 0 0 120px 10px color-mix(in oklab, var(--destructive) 45%, transparent);
-	animation: alert-vignette 1.4s ease-out infinite;
-}
-.alert-ring {
-	animation: alert-ring 1.4s ease-out infinite;
-}
-/* Water pins ripple outward like a drop hitting a surface. */
-@keyframes alert-ripple {
-	from {
-		transform: scale(0.5);
-		opacity: 0.8;
-	}
-	to {
-		transform: scale(2.2) scaleY(0.55);
-		opacity: 0;
-	}
-}
-.alert-ripple {
-	animation: alert-ripple 2.1s cubic-bezier(0.1, 0.6, 0.3, 1) infinite;
-}
-/* Cause-chain steps light up one after another. */
-@keyframes chain-step {
-	0%,
-	100% {
-		filter: brightness(1);
-	}
-	15% {
-		filter: brightness(1.6);
-	}
-}
-.chain-step {
-	animation:
-		alert-in 0.3s ease-out both,
-		chain-step 2.4s ease-in-out infinite;
-}
-.alert-blink {
-	animation: alert-blink 1s steps(2, start) infinite;
-}
 @media (prefers-reduced-motion: reduce) {
-	.alert-in,
-	.alert-critical::after,
-	.alert-vignette,
-	.alert-ring,
-	.alert-ripple,
-	.chain-step,
-	.alert-blink {
+	.alert-in {
 		animation: none;
 	}
 }

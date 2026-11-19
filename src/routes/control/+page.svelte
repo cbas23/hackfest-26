@@ -1,26 +1,24 @@
 <script lang="ts">
 	import ZapOffIcon from '@lucide/svelte/icons/zap-off';
-	import WindIcon from '@lucide/svelte/icons/wind';
+	import FanIcon from '@lucide/svelte/icons/fan';
 	import DropletsIcon from '@lucide/svelte/icons/droplets';
 	import ConstructionIcon from '@lucide/svelte/icons/construction';
 	import HeartPulseIcon from '@lucide/svelte/icons/heart-pulse';
 	import DatabaseIcon from '@lucide/svelte/icons/database';
-	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
 	import { LEVELS } from '#lib/hollow/data.js';
-	import { EVENT_TABLES, isActive, type EventTable } from '#lib/hollow/events.js';
-	import { currentEvents } from '#lib/hollow/simulation.js';
-	import { connectLive, live, reopenAllEvents } from '#lib/live/events.svelte.js';
+	import { POINT_KINDS, type PointKind } from '#lib/hollow/state.js';
+	import { currentState } from '#lib/hollow/simulation.js';
+	import { connectLive, live } from '#lib/live/state.svelte.js';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as Tabs from '#lib/components/ui/tabs/index.js';
 	import * as ToggleGroup from '#lib/components/ui/toggle-group/index.js';
 	import { cn } from '#lib/utils.js';
 	import FloorCanvas from '#lib/components/control/floor-canvas.svelte';
-	import BlackoutPanel from '#lib/components/control/blackout-panel.svelte';
-	import FacilityPanel from '#lib/components/control/facility-panel.svelte';
+	import PointPanel from '#lib/components/control/point-panel.svelte';
 	import TunnelPanel from '#lib/components/control/tunnel-panel.svelte';
 	import SicknessPanel from '#lib/components/control/sickness-panel.svelte';
 	import {
-		clearEvents,
+		clearMap,
 		control,
 		loadStarterScenario,
 		type ControlTab
@@ -29,27 +27,24 @@
 	connectLive();
 
 	const TABS: { value: ControlTab; label: string; icon: typeof ZapOffIcon }[] = [
-		{ value: 'blackouts', label: 'Blackouts', icon: ZapOffIcon },
-		{ value: 'airQuality', label: 'Air', icon: WindIcon },
-		{ value: 'waterCuts', label: 'Water', icon: DropletsIcon },
-		{ value: 'blockedTunnels', label: 'Tunnels', icon: ConstructionIcon },
+		{ value: 'power', label: 'Power', icon: ZapOffIcon },
+		{ value: 'water', label: 'Water', icon: DropletsIcon },
+		{ value: 'air', label: 'Air', icon: FanIcon },
+		{ value: 'tunnels', label: 'Tunnels', icon: ConstructionIcon },
 		{ value: 'sickness', label: 'Sickness', icon: HeartPulseIcon }
 	];
 
-	const events = $derived.by(() => {
+	const state = $derived.by(() => {
 		void live.version;
-		return currentEvents();
+		return currentState();
 	});
-	/** Active events per table and level. */
-	const active = (table: EventTable, level?: number) =>
-		events[table].filter((e) => isActive(e) && (level === undefined || e.level === level)).length;
-	const activeOnLevel = (level: number) => EVENT_TABLES.reduce((n, t) => n + active(t, level), 0);
-	const fixedCount = $derived(
-		EVENT_TABLES.reduce((n, t) => n + events[t].filter((e) => !isActive(e)).length, 0)
-	);
-	const empty = $derived(
-		live.status === 'live' && EVENT_TABLES.every((t) => events[t].length === 0)
-	);
+	/** Points of a kind, and blocked tunnels, optionally on one level. */
+	const on = (list: { level: number }[], level?: number) =>
+		level === undefined ? list.length : list.filter((e) => e.level === level).length;
+	const pointsOf = (kind: PointKind) => state.points.filter((p) => p.kind === kind);
+	const countOnLevel = (level: number) => on(state.points, level) + on(state.blockedTunnels, level);
+	const total = $derived(state.points.length + state.blockedTunnels.length);
+	const empty = $derived(live.status === 'live' && total === 0);
 	const level = $derived(LEVELS[control.level]);
 
 	const STATUS_LABEL = {
@@ -62,19 +57,22 @@
 	function confirmLoad() {
 		if (
 			empty ||
-			confirm('Replace every event (and the sickness settings) with the starter scenario?')
+			confirm(
+				'Replace every point, blocked tunnel and the sickness settings with the starter scenario?'
+			)
 		)
 			void loadStarterScenario();
 	}
 	function confirmClear() {
-		if (confirm('Delete every blackout, air, water and tunnel event?')) void clearEvents();
+		if (confirm('Delete every power, water and air point and every blocked tunnel?'))
+			void clearMap();
 	}
 </script>
 
 <svelte:head><title>The Hollow · Control center</title></svelte:head>
 
 <main class="flex h-full flex-col overflow-hidden lg:flex-row">
-	<!-- The level and its events -->
+	<!-- The level and its state -->
 	<section class="flex min-h-[55vh] min-w-0 flex-1 flex-col lg:min-h-0">
 		<header class="flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-4 py-2.5">
 			<div class="flex flex-col">
@@ -94,8 +92,12 @@
 				}
 			>
 				{#each LEVELS as l (l.code)}
-					{@const n = activeOnLevel(l.index)}
-					<ToggleGroup.Item value={l.code} aria-label="{l.name}, {n} active events" class="gap-1">
+					{@const n = countOnLevel(l.index)}
+					<ToggleGroup.Item
+						value={l.code}
+						aria-label="{l.name}, {n} points and tunnels"
+						class="gap-1"
+					>
 						{l.code}
 						{#if n}<span class="text-[10px] text-muted-foreground tabular-nums">{n}</span>{/if}
 					</ToggleGroup.Item>
@@ -109,8 +111,8 @@
 			>
 				<span class="font-semibold text-foreground">{level.code} {level.name}</span>
 				<span class="text-muted-foreground">
-					{active('blackouts', level.index)} blackouts · {active('airQuality', level.index)} air ·
-					{active('waterCuts', level.index)} water · {active('blockedTunnels', level.index)} tunnels
+					{#each POINT_KINDS as k (k)}{on(pointsOf(k), level.index)} {k} ·
+					{/each}{on(state.blockedTunnels, level.index)} tunnels
 				</span>
 			</div>
 		</div>
@@ -136,7 +138,7 @@
 					{STATUS_LABEL[live.status]}
 				</span>
 				<span class="text-muted-foreground tabular-nums">
-					{EVENT_TABLES.reduce((n, t) => n + active(t), 0)} active events
+					{state.points.length} points · {state.blockedTunnels.length} tunnels
 				</span>
 			</div>
 			{#if live.error}
@@ -148,8 +150,8 @@
 			{/if}
 			{#if empty}
 				<p class="rounded-md border border-dashed p-2 text-xs text-muted-foreground">
-					There are no events yet. Load the starter scenario to fill the city from its seed, or
-					start placing events on the map.
+					The map is all clear. Load the starter scenario to fill the city from its seed, or start
+					placing points on the map.
 				</p>
 			{/if}
 			<div class="flex flex-wrap gap-1.5">
@@ -161,16 +163,10 @@
 				>
 				<Button
 					size="sm"
-					variant="outline"
-					disabled={control.busy || !fixedCount}
-					onclick={() => reopenAllEvents()}><RotateCcwIcon /> Reopen {fixedCount} fixed</Button
-				>
-				<Button
-					size="sm"
 					variant="ghost"
 					class="text-destructive"
 					disabled={control.busy || live.status !== 'live'}
-					onclick={confirmClear}>Clear events</Button
+					onclick={confirmClear}>Clear map</Button
 				>
 			</div>
 		</div>
@@ -184,10 +180,10 @@
 					</Tabs.Trigger>
 				{/each}
 			</Tabs.List>
-			<Tabs.Content value="blackouts"><BlackoutPanel /></Tabs.Content>
-			<Tabs.Content value="airQuality"><FacilityPanel table="airQuality" /></Tabs.Content>
-			<Tabs.Content value="waterCuts"><FacilityPanel table="waterCuts" /></Tabs.Content>
-			<Tabs.Content value="blockedTunnels"><TunnelPanel /></Tabs.Content>
+			{#each POINT_KINDS as k (k)}
+				<Tabs.Content value={k}><PointPanel kind={k} /></Tabs.Content>
+			{/each}
+			<Tabs.Content value="tunnels"><TunnelPanel /></Tabs.Content>
 			<Tabs.Content value="sickness"><SicknessPanel /></Tabs.Content>
 		</Tabs.Root>
 	</aside>

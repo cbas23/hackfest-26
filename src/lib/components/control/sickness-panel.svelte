@@ -1,11 +1,11 @@
 <script lang="ts">
 	import ShuffleIcon from '@lucide/svelte/icons/shuffle';
 	import { LEVELS } from '#lib/hollow/data.js';
-	import type { SicknessSettings } from '#lib/hollow/events.js';
+	import type { SicknessSettings } from '#lib/hollow/state.js';
 	import { formatPercent } from '#lib/hollow/format.js';
 	import { DEFAULT_SICKNESS, sicknessOf, sicknessTotals } from '#lib/hollow/sickness.js';
-	import { currentEvents, getHollow } from '#lib/hollow/simulation.js';
-	import { live } from '#lib/live/events.svelte.js';
+	import { currentState, getHollow } from '#lib/hollow/simulation.js';
+	import { live } from '#lib/live/state.svelte.js';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Input } from '#lib/components/ui/input/index.js';
 	import { Slider } from '#lib/components/ui/slider/index.js';
@@ -14,7 +14,7 @@
 	const hollow = getHollow();
 	const published = $derived.by(() => {
 		void live.version;
-		return currentEvents().sickness;
+		return currentState().sickness;
 	});
 	/** What the panel shows: the draft if there is one, else the published settings. */
 	const shown = $derived(control.sicknessDraft ?? published);
