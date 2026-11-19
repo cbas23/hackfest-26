@@ -1,6 +1,13 @@
 import type { Point, Room } from '#lib/tunnels/generate.js';
-import { FACILITY_INFO, FLOOR_CONFIG, LEVELS, SHAFTS, type FacilityKind } from './data.js';
-import type { Floor, Hollow } from './world.js';
+import {
+	FACILITY_INFO,
+	FLOOR_CONFIG,
+	LEVELS,
+	SHAFT_COLORS,
+	SHAFTS,
+	type FacilityKind
+} from './data.js';
+import { perFloor, type Floor, type Hollow } from './world.js';
 
 const W = FLOOR_CONFIG.width;
 const H = FLOOR_CONFIG.height;
@@ -71,7 +78,8 @@ const dirIndex = (a: Point, b: Point) => {
 };
 
 // ── Places ──────────────────────────────────────────────────────────────────
-export function placesOn(floor: Floor): Place[] {
+/** Every named place on a floor (cached per floor; treat the array as read-only). */
+export const placesOn = perFloor((floor: Floor): Place[] => {
 	const level = LEVELS[floor.index];
 	const where = `${level.code} ${level.name}`;
 	const out: Place[] = [];
@@ -122,7 +130,28 @@ export function placesOn(floor: Floor): Place[] {
 		}
 	}
 	return out;
-}
+});
+
+/** Marker colour (a CSS colour) for each kind of place; shafts use their status colour. */
+const KIND_COLOR: Record<Exclude<PlaceKind, 'shaft'>, string> = {
+	block: 'var(--chart-1)',
+	farm: 'var(--chart-2)',
+	plant: 'var(--chart-3)',
+	air: FACILITY_INFO.air.color,
+	water: FACILITY_INFO.water.color,
+	clinic: FACILITY_INFO.clinic.color,
+	market: FACILITY_INFO.market.color,
+	directorate: FACILITY_INFO.directorate.color
+};
+
+export const placeColor = (p: Place) =>
+	p.kind === 'shaft' ? SHAFT_COLORS[SHAFTS[p.shaft!].status] : KIND_COLOR[p.kind];
+
+/** Centre of a place's room, in tiles. */
+export const placeCentre = (p: Place) => ({
+	x: p.room.x + p.room.w / 2,
+	y: p.room.y + p.room.h / 2
+});
 
 // ── Routing ─────────────────────────────────────────────────────────────────
 class Heap {

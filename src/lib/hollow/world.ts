@@ -8,9 +8,13 @@ import {
 import { FLOOR_CONFIG, LEVELS, SHAFTS, type FacilitySpec } from './data.js';
 import { decodeFloor, type BakedHollow } from './bake.js';
 import baked from './floors.json';
+import { hashPair } from '#lib/random.js';
+import { SIM, spread, streamSeed } from './simConfig.js';
 
 export interface Floor {
 	index: number;
+	/** The city seed the floor was built from (simulations derive their own seeds from it). */
+	seed: number;
 	map: TunnelMap;
 	/** Gate room for each shaft index (same coordinates on every floor). */
 	shaftGates: Room[];
@@ -38,15 +42,6 @@ const sideOf = (r: Room): Side => {
 	return dx > 0 ? 'e' : dx < 0 ? 'w' : dy > 0 ? 's' : 'n';
 };
 
-/** Cheap deterministic hash → [0, 1). */
-const hash01 = (a: number, b: number) => {
-	let h = Math.imul(a ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(b + 0x632be59b, 0xc2b2ae35);
-	h ^= h >>> 15;
-	h = Math.imul(h, 0x2c1b3c6d);
-	h ^= h >>> 12;
-	return (h >>> 0) / 4294967296;
-};
-
 const floorSeed = (seed: number, index: number) => seed * 31 + index * 7919;
 
 /**
@@ -56,7 +51,9 @@ const floorSeed = (seed: number, index: number) => seed * 31 + index * 7919;
  */
 function placeFacilities(map: TunnelMap, specs: FacilitySpec[], seed: number) {
 	const out = new Map<number, FacilitySpec>();
-	const candidates = map.rooms.filter((r) => r.kind === 'room' && Math.min(r.w, r.h) >= 3);
+	const candidates = map.rooms.filter(
+		(r) => r.kind === 'room' && Math.min(r.w, r.h) >= SIM.world.facilityMinSize
+	);
 	const cx = map.width / 2;
 	const cy = map.height / 2;
 	const centre = (r: Room) => ({ x: r.x + r.w / 2, y: r.y + r.h / 2 });
@@ -67,11 +64,11 @@ function placeFacilities(map: TunnelMap, specs: FacilitySpec[], seed: number) {
 		for (const r of candidates) {
 			if (out.has(r.id)) continue;
 			const c = centre(r);
-			const spread = chosen.length
+			const apart = chosen.length
 				? Math.min(...chosen.map((o) => Math.hypot(o.x - c.x, o.y - c.y)))
 				: 120 - Math.hypot(c.x - cx, c.y - cy) * 0.5;
 			// Cap the spread so picks don't all run to the rim; noise breaks ties.
-			const score = Math.min(spread, 90) + hash01(r.id, seed) * 12 + r.w * r.h * 0.2;
+			const score = Math.min(apart, 90) + hashPair(r.id, seed) * 12 + r.w * r.h * 0.2;
 			if (score > bestScore) {
 				bestScore = score;
 				best = r;
@@ -137,6 +134,8 @@ function bakedFor(seed: number): BakedHollow | null {
 
 export function createHollow(seed: number): Hollow {
 	const stored = bakedFor(seed);
+	/** Facility placement and power draw from the world stream; the tunnels use `seed` itself. */
+	const worldSeed = streamSeed(seed, 'world');
 	let generated: { crown: TunnelMap; gateSpecs: GateSpec[] } | null = null;
 	if (!stored) {
 		console.warn('[hollow] baked floors are stale; generating. Run `bun run bake:hollow`.');
@@ -156,14 +155,14 @@ export function createHollow(seed: number): Hollow {
 		const level = LEVELS[index];
 		const gates = map.rooms.filter((r) => r.kind === 'gate');
 		const shaftGates = gateSpecs.map((_, i) => gates.find((g) => g.specIndex === i) ?? gates[i]);
-		const facilities = placeFacilities(map, level.facilities, floorSeed(seed, index));
+		const facilities = placeFacilities(map, level.facilities, floorSeed(worldSeed, index));
 		// Deeper floors lose power first: share of lit blocks tracks the level's light.
 		// Facilities and infrastructure are kept powered.
 		const lit = map.rooms.map(
 			(r) =>
 				r.kind !== 'room' ||
 				facilities.has(r.id) ||
-				hash01(r.id, floorSeed(seed, index)) < 0.15 + level.light * 0.85
+				hashPair(r.id, floorSeed(worldSeed, index)) < spread(SIM.world.powered, level.light)
 		);
 		const housing = map.rooms.filter((r) => r.kind === 'room' && !facilities.has(r.id));
 		const area = housing.reduce((s, r) => s + r.w * r.h, 0);
@@ -172,7 +171,7 @@ export function createHollow(seed: number): Hollow {
 			r.kind === 'room' && !facilities.has(r.id) ? Math.round(r.w * r.h * perTile) : 0
 		);
 		const litShare = housing.filter((r) => lit[r.id]).length / Math.max(1, housing.length);
-		return { index, map, shaftGates, lit, residents, litShare, facilities };
+		return { index, seed, map, shaftGates, lit, residents, litShare, facilities };
 	};
 
 	cache.set(0, build(0, loadMap(0)));
@@ -192,6 +191,48 @@ export function createHollow(seed: number): Hollow {
 	};
 }
 
-/** Shaft index for a gate room on a given floor, or -1. */
-export const shaftOf = (floor: Floor, room: Room | null | undefined) =>
-	room ? floor.shaftGates.findIndex((g) => g?.id === room.id) : -1;
+/**
+ * Memoise per-floor derived data. Keyed by the floor object itself, so floors from
+ * Hollows with different seeds never share an entry.
+ */
+export function perFloor<T>(fn: (floor: Floor) => T): (floor: Floor) => T {
+	const cache = new WeakMap<Floor, T>();
+	return (floor) => {
+		if (cache.has(floor)) return cache.get(floor)!;
+		const value = fn(floor);
+		cache.set(floor, value);
+		return value;
+	};
+}
+
+/** `[minX, minY, maxX, maxY]` in tiles. */
+export type Bounds = readonly [number, number, number, number];
+
+const extentOf = perFloor((floor) => {
+	let [minX, minY, maxX, maxY] = [Infinity, Infinity, -Infinity, -Infinity];
+	let [bMinX, bMinY, bMaxX, bMaxY] = [Infinity, Infinity, -Infinity, -Infinity];
+	floor.map.grid.forEach((row, y) =>
+		row.forEach((t, x) => {
+			if (t === 'void') return;
+			minX = Math.min(minX, x);
+			maxX = Math.max(maxX, x);
+			minY = Math.min(minY, y);
+			maxY = Math.max(maxY, y);
+			if (t === 'rock') return;
+			bMinX = Math.min(bMinX, x);
+			bMaxX = Math.max(bMaxX, x + 1);
+			bMinY = Math.min(bMinY, y);
+			bMaxY = Math.max(bMaxY, y + 1);
+		})
+	);
+	return {
+		dug: [minX, minY, maxX, maxY] as Bounds,
+		built: [bMinX, bMinY, bMaxX, bMaxY] as Bounds
+	};
+});
+
+/** Inclusive tile bounds of the dug area (everything but void): what "fit level" frames. */
+export const floorBounds = (floor: Floor): Bounds => extentOf(floor).dug;
+
+/** Bounds of the built tiles (no rock), with exclusive maxima. */
+export const builtBounds = (floor: Floor): Bounds => extentOf(floor).built;

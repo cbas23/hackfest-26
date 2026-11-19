@@ -10,6 +10,8 @@ export interface FacilitySpec {
 	name: string;
 	/** Optional lore line; falls back to the kind's description. */
 	note?: string;
+	/** Sensor readings pinned to match the note (metric key → value; see `simConfig.ts`). */
+	readings?: Record<string, number>;
 }
 
 export interface Level {
@@ -131,7 +133,8 @@ export const LEVELS: Level[] = [
 			{
 				kind: 'clinic',
 				name: 'Clinic Nine',
-				note: 'Overwhelmed by lung sickness. Its patient count does not match Directorate reports.'
+				note: 'Overwhelmed by lung sickness. Its patient count does not match Directorate reports.',
+				readings: { beds: 118 }
 			},
 			{ kind: 'air', name: 'Warrens Air Exchange' },
 			{ kind: 'air', name: 'Stackhouse Vents' },
@@ -160,7 +163,8 @@ export const LEVELS: Level[] = [
 			{
 				kind: 'water',
 				name: 'The Drip',
-				note: 'Mid-level water recycler. Running at 40% capacity; water rations halved.'
+				note: 'Mid-level water recycler. Running at 40% capacity; water rations halved.',
+				readings: { output: 40 }
 			},
 			{ kind: 'air', name: 'Lowmarch Vents' },
 			{ kind: 'clinic', name: 'Lowmarch Clinic' }
@@ -183,7 +187,8 @@ export const LEVELS: Level[] = [
 			{
 				kind: 'water',
 				name: 'Recycler Array 7',
-				note: 'The largest water recycler in the Hollow. Three of eight units offline.'
+				note: 'The largest water recycler in the Hollow. Three of eight units offline.',
+				readings: { output: 62.5 }
 			},
 			{ kind: 'water', name: 'Sump Pumps' },
 			{ kind: 'air', name: 'Sump Vents' },
@@ -272,41 +277,43 @@ export const SHAFTS: ShaftInfo[] = [
 	}
 ];
 
+/** Colours as CSS `var()`s (see `layout.css`); the 3D map resolves them with `cssColor`. */
 export const SHAFT_COLORS: Record<ShaftStatus, string> = {
-	open: '#a3e635',
-	restricted: '#38bdf8',
-	sealed: '#f43f5e',
-	unregistered: '#c084fc'
+	open: 'var(--shaft-open)',
+	restricted: 'var(--shaft-restricted)',
+	sealed: 'var(--shaft-sealed)',
+	unregistered: 'var(--shaft-unregistered)'
 };
 
 export const MAX_DEPTH = LEVELS[LEVELS.length - 1].depth;
 
+/** `color` is a CSS `var()` (see `layout.css`). */
 export const FACILITY_INFO: Record<FacilityKind, { label: string; color: string; about: string }> =
 	{
 		air: {
 			label: 'Ventilation',
-			color: '#38bdf8',
+			color: 'var(--facility-air)',
 			about: 'Air exchange. Filtered air is metered down from the Crown — less the deeper you go.'
 		},
 		water: {
 			label: 'Water',
-			color: '#3b82f6',
+			color: 'var(--facility-water)',
 			about:
 				'Water recycling and storage. Every drop in the Hollow passes through here again and again.'
 		},
 		clinic: {
 			label: 'Clinic',
-			color: '#f87171',
+			color: 'var(--facility-clinic)',
 			about: 'Clinic. Lung-sickness wards; the queue runs down the tunnel.'
 		},
 		market: {
 			label: 'Market',
-			color: '#f59e0b',
+			color: 'var(--facility-market)',
 			about: 'Market hub where rations, light-hours and water chits change hands.'
 		},
 		directorate: {
 			label: 'Directorate',
-			color: '#a78bfa',
+			color: 'var(--facility-directorate)',
 			about: 'Directorate office. Permits, checkpoints and the network are run from here.'
 		}
 	};

@@ -1,5 +1,7 @@
 <script lang="ts">
-	let { kind, color, size }: { kind: string; color: string; size: number } = $props();
+	import type { PlaceKind } from '#lib/hollow/nav.js';
+
+	let { kind, color, size }: { kind: PlaceKind; color: string; size: number } = $props();
 </script>
 
 <span

@@ -1,3 +1,5 @@
+import { mulberry32 } from '#lib/random.js';
+
 export type TileType = 'void' | 'rock' | 'road' | 'room' | 'gate' | FeatureKind;
 export type FeatureKind = 'farm' | 'plant';
 
@@ -91,18 +93,6 @@ for (let w = 1; w <= 5; w++)
 		ROOM_SIZES.push({ w, h, weight: Math.min(w, h) === 1 ? 0.05 : 1 });
 	}
 const ROOM_WEIGHT_TOTAL = ROOM_SIZES.reduce((s, r) => s + r.weight, 0);
-
-/** Small deterministic PRNG so a seed always yields the same city. */
-function mulberry32(seed: number) {
-	let a = seed >>> 0;
-	return () => {
-		a = (a + 0x6d2b79f5) >>> 0;
-		let t = a;
-		t = Math.imul(t ^ (t >>> 15), t | 1);
-		t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-	};
-}
 
 /** Minimal binary min-heap keyed by priority. */
 class Heap {

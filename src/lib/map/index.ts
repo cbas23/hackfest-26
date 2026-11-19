@@ -36,3 +36,5 @@ export type {
 } from './overlays.js';
 /** Helpers for styles: deterministic noise and brightness jitter. */
 export { hash01, shade } from './geometry.js';
+/** Per-face brightness the meshes bake in, for overlays that should match them. */
+export { SIDE_SHADE, UNDERSIDE_SHADE } from './mesh.js';
