@@ -14,6 +14,7 @@
 	import StepScale from './step-scale.svelte';
 	import TunnelLegend from './tunnel-legend.svelte';
 	import HomeAddress from './home-address.svelte';
+	import DirectionsPanel from './directions-panel.svelte';
 	import SicknessScale from './sickness-scale.svelte';
 	import { home, type LayerId } from './home-state.svelte.js';
 
@@ -131,6 +132,7 @@
 >
 	<ScrollArea class="min-h-0 flex-1">
 		<HomeAddress />
+		<DirectionsPanel />
 
 		<section class="mx-3 mt-4 mb-5">
 			<h2 id="layers-heading" class="mb-2 px-3 text-xs font-medium text-muted-foreground">

@@ -9,6 +9,7 @@
 	import XIcon from '@lucide/svelte/icons/x';
 	import { exampleAddress, parseAddress, placeByKey } from './address.js';
 	import { home, mapNav, setAddress } from './home-state.svelte.js';
+	import { directions } from './directions.svelte.js';
 	import PlaceIcon from './place-icon.svelte';
 
 	const place = $derived(placeByKey(home.address));
@@ -40,6 +41,7 @@
 		// Blocks are picked on a single level: open the home's level, or the one last shown.
 		if (home.overview) mapNav.goTo(place?.floor ?? home.level);
 		home.pickingHome = true;
+		directions.picking = null;
 		editing = false;
 		error = '';
 	}
