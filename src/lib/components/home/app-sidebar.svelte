@@ -33,8 +33,8 @@
 	const LAYERS: Layer[] = [
 		{
 			id: 'alerts',
-			title: 'Blackout & air alerts',
-			summary: 'Power cuts and failing vents',
+			title: 'Power, air & water alerts',
+			summary: 'Blackouts, failing vents, unsafe water',
 			icon: SirenIcon,
 			color: STATUS_INFO.critical.color,
 			content: alertsInfo
