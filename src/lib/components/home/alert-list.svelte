@@ -1,23 +1,25 @@
 <script lang="ts">
 	import { LEVELS } from '#lib/hollow/data.js';
-	import { alertsOn, type HollowAlert } from '#lib/hollow/alerts.js';
+	import type { HollowAlert } from '#lib/hollow/alerts.js';
+	import { formatCompact } from '#lib/hollow/format.js';
+	import { getHollow, simulateFloor } from '#lib/hollow/simulation.js';
 	import { STATUS_INFO } from '#lib/hollow/sensors.js';
 	import { cn } from '#lib/utils.js';
 	import ZapOffIcon from '@lucide/svelte/icons/zap-off';
 	import WindIcon from '@lucide/svelte/icons/wind';
-	import { hollow } from './hollow.js';
 	import { home, mapNav } from './home-state.svelte.js';
 
-	const compact = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
+	const hollow = getHollow();
+	const alertsAt = (level: number) => simulateFloor(hollow.floor(level)).alerts.alerts;
 
 	/** Alerts for the shown level, or every level in the stacked view. */
 	const alerts = $derived<HollowAlert[]>(
 		home.overview
-			? LEVELS.flatMap((l) => alertsOn(hollow.floor(l.index)).alerts).sort(
+			? LEVELS.flatMap((l) => alertsAt(l.index)).sort(
 					(a, b) =>
 						STATUS_INFO[b.severity].rank - STATUS_INFO[a.severity].rank || b.residents - a.residents
 				)
-			: alertsOn(hollow.floor(home.level)).alerts
+			: alertsAt(home.level)
 	);
 </script>
 
@@ -79,7 +81,7 @@
 							<span class="truncate text-[11px]">
 								{a.detail} ·
 								<span class="font-semibold text-foreground tabular-nums"
-									>{compact.format(a.residents)}</span
+									>{formatCompact(a.residents)}</span
 								> residents
 							</span>
 						</span>

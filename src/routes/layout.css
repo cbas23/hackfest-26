@@ -159,6 +159,26 @@
 	--map-light-ground: var(--background);
 }
 
+/*
+ * Hollow domain colours: shaft status, facility kinds and sensor status. The UI uses them
+ * as `var()`s and the 3D map resolves them through `theme.ts`, so both repaint together.
+ */
+:root {
+	--shaft-open: #a3e635;
+	--shaft-restricted: #38bdf8;
+	--shaft-sealed: #f43f5e;
+	--shaft-unregistered: #c084fc;
+	--facility-air: #38bdf8;
+	--facility-water: #3b82f6;
+	--facility-clinic: #f87171;
+	--facility-market: #f59e0b;
+	--facility-directorate: #a78bfa;
+	--status-normal: #22c55e;
+	--status-warning: #eab308;
+	--status-high: #f97316;
+	--status-critical: #ef4444;
+}
+
 @theme inline {
 	--color-background: var(--background);
 	--color-foreground: var(--foreground);

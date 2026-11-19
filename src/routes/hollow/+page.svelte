@@ -1,14 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { Room } from '#lib/tunnels/generate.js';
-	import {
-		FACILITY_INFO,
-		HOLLOW_SEED,
-		LEVELS,
-		MAX_DEPTH,
-		SHAFTS,
-		SHAFT_COLORS
-	} from '#lib/hollow/data.js';
+	import { FACILITY_INFO, LEVELS, MAX_DEPTH, SHAFTS, SHAFT_COLORS } from '#lib/hollow/data.js';
 	import {
 		findRoute,
 		placesOn,
@@ -18,18 +11,14 @@
 		type RouteOptions
 	} from '#lib/hollow/nav.js';
 	import { createHollowMap, type HollowMap, type Pick } from '#lib/hollow/hollowMap.js';
+	import { routeOverlay } from '#lib/hollow/scene/route.js';
 	import { facilityStatus, STATUS_INFO, type Status } from '#lib/hollow/sensors.js';
 	import { assessImpact } from '#lib/hollow/impact.js';
-	import { createHollow, type Floor } from '#lib/hollow/world.js';
+	import { floorBounds, type Floor } from '#lib/hollow/world.js';
+	import { getHollow } from '#lib/hollow/simulation.js';
 
-	const hollow = createHollow(HOLLOW_SEED);
-	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- cache; `dug` drives reactivity
-	const placeCache = new Map<number, Place[]>();
-	const placesFor = (f: Floor) => {
-		let p = placeCache.get(f.index);
-		if (!p) placeCache.set(f.index, (p = placesOn(f)));
-		return p;
-	};
+	const hollow = getHollow();
+	const placesFor = placesOn;
 
 	let container: HTMLDivElement;
 	let scene = $state.raw<HollowMap | undefined>();
@@ -138,7 +127,7 @@
 		levelIndex = index;
 		hover = null;
 		scene?.showFloor(hollow.floor(index), dir);
-		if (leaving) scene?.fitBounds(...cityBounds(hollow.floor(index)));
+		if (leaving) scene?.fitBounds(...floorBounds(hollow.floor(index)));
 		scene?.setHover(null);
 		scene?.setSelection(selected?.floor === index ? selected.room : null);
 	}
@@ -148,7 +137,7 @@
 		if (overview) {
 			overview = false;
 			scene?.setOverview(false, []);
-			scene?.fitBounds(...cityBounds(floor));
+			scene?.fitBounds(...floorBounds(floor));
 			return;
 		}
 		overview = true;
@@ -231,28 +220,10 @@
 		[from, to] = [to, from];
 	}
 
-	/** Bounding box of the dug area on a floor, in tiles. */
-	function cityBounds(f: Floor) {
-		let minX = Infinity;
-		let minY = Infinity;
-		let maxX = -Infinity;
-		let maxY = -Infinity;
-		f.map.grid.forEach((row, y) =>
-			row.forEach((t, x) => {
-				if (t === 'void') return;
-				minX = Math.min(minX, x);
-				maxX = Math.max(maxX, x);
-				minY = Math.min(minY, y);
-				maxY = Math.max(maxY, y);
-			})
-		);
-		return [minX, minY, maxX, maxY] as const;
-	}
-
 	/** F: frame the whole level, or the whole stack in the all-levels view. */
 	function fitFloor() {
 		if (overview) scene?.frameStack();
-		else scene?.fitBounds(...cityBounds(floor));
+		else scene?.fitBounds(...floorBounds(floor));
 	}
 
 	/** Frame the route's leg on a floor (the shown one by default), switching to it. */
@@ -266,7 +237,8 @@
 
 	// Push the whole route into the scene; it shows the legs for whatever is on screen.
 	$effect(() => {
-		scene?.setRoute(
+		if (!scene) return;
+		routeOverlay(scene).set(
 			route
 				? {
 						legs: route.legs.map((l) => ({ level: l.floor, path: l.path })),
@@ -310,7 +282,7 @@
 		if (overview) {
 			// Stacked view: a label per level, plus where the route starts and ends.
 			for (const l of LEVELS) {
-				const [minX, minY, , maxY] = cityBounds(hollow.floor(l.index));
+				const [minX, minY, , maxY] = floorBounds(hollow.floor(l.index));
 				out.push({
 					key: `level-${l.code}`,
 					x: minX - 2,
@@ -354,7 +326,7 @@
 				label: p.label,
 				color: placeColor(p),
 				place: p,
-				status: facilityStatus(p)?.status
+				status: facilityStatus(floor, p)?.status
 			});
 		}
 		if (route) {
@@ -489,7 +461,7 @@
 		});
 		scene = s;
 		s.showFloor(hollow.floor(0), 0);
-		s.fitBounds(...cityBounds(hollow.floor(0)));
+		s.fitBounds(...floorBounds(hollow.floor(0)));
 
 		// Dig the remaining floors in the background so search and routing cover them.
 		let timer: ReturnType<typeof setTimeout>;
@@ -943,7 +915,7 @@
 	{#if selected}
 		{@const p = selected}
 		{@const pf = hollow.floor(p.floor)}
-		{@const sensors = facilityStatus(p)}
+		{@const sensors = facilityStatus(hollow.floor(p.floor), p)}
 		<section
 			class="absolute bottom-4 left-4 z-20 max-h-[calc(100%-6rem)] w-[min(24rem,calc(100%-5.5rem))] overflow-y-auto rounded-2xl border border-white/10 bg-[#1f2638]/95 p-4 shadow-xl backdrop-blur"
 			aria-label={p.label}
@@ -992,7 +964,7 @@
 						<span class="font-semibold tracking-wider text-slate-400">SENSORS</span>
 						<span
 							class="rounded-full px-2 py-0.5 font-semibold"
-							style="color:{overall.color};background:{overall.color}22"
+							style="color:{overall.color};background:color-mix(in oklab, {overall.color} 13%, transparent)"
 						>
 							{overall.label}
 						</span>
@@ -1052,7 +1024,8 @@
 										<td class="py-0.5 text-right">
 											<span
 												class="rounded-full px-1.5 py-px font-semibold"
-												style="color:{sev.color};background:{sev.color}22">{sev.label}</span
+												style="color:{sev.color};background:color-mix(in oklab, {sev.color} 13%, transparent)"
+												>{sev.label}</span
 											>
 										</td>
 									</tr>

@@ -1,6 +1,7 @@
 import { placesOn, type Place, type PlaceKind } from './nav.js';
 import { facilityStatus, STATUS_INFO, type Status } from './sensors.js';
-import type { Floor } from './world.js';
+import { perFloor, type Floor } from './world.js';
+import { SIM } from './simConfig.js';
 
 /**
  * Infrastructure impact assessment (the Assess step): when a facility fails, which
@@ -12,10 +13,8 @@ import type { Floor } from './world.js';
  *   by walking distance through the tunnels (its "service area").
  * - Critical facilities cut service to every dependent resident; High risk ones to half.
  * - Normal and Warning facilities affect no one yet.
+ * The rates are in `SIM.impact` (`simConfig.ts`).
  */
-
-/** Share of dependent residents who lose service, by facility status. */
-const EXPOSURE: Record<Status, number> = { normal: 0, warning: 0, high: 0.5, critical: 1 };
 
 const SECTORS = [
 	['North-West', 'North', 'North-East'],
@@ -56,11 +55,7 @@ interface FloorIndex {
 	areas: Map<PlaceKind, Map<number, number[]>>;
 }
 
-const floors = new Map<number, FloorIndex>();
-
-function indexFloor(floor: Floor): FloorIndex {
-	const hit = floors.get(floor.index);
-	if (hit) return hit;
+const indexFloor = perFloor((floor: Floor): FloorIndex => {
 	const housing = floor.map.rooms.filter((r) => floor.residents[r.id] > 0);
 	const cx = (r: (typeof housing)[number]) => r.x + r.w / 2;
 	const cy = (r: (typeof housing)[number]) => r.y + r.h / 2;
@@ -77,10 +72,8 @@ function indexFloor(floor: Floor): FloorIndex {
 		sector.set(r.id, s);
 		sectorPopulation[s] += floor.residents[r.id];
 	}
-	const index: FloorIndex = { places: placesOn(floor), sector, sectorPopulation, areas: new Map() };
-	floors.set(floor.index, index);
-	return index;
-}
+	return { places: placesOn(floor), sector, sectorPopulation, areas: new Map() };
+});
 
 /**
  * Split a floor's housing between all facilities of one kind: a multi-source
@@ -132,17 +125,19 @@ function serviceAreas(floor: Floor, idx: FloorIndex, kind: PlaceKind) {
 /** A neighborhood's severity: the facility's status, softened when few residents depend on it. */
 function severityOf(status: Status, dependentShare: number): Status {
 	const order: Status[] = ['normal', 'warning', 'high', 'critical'];
-	const drop = dependentShare >= 0.5 ? 0 : dependentShare >= 0.2 ? 1 : 2;
+	const { oneStep, twoSteps } = SIM.impact.soften;
+	const drop = dependentShare >= oneStep ? 0 : dependentShare >= twoSteps ? 1 : 2;
 	return order[Math.max(1, STATUS_INFO[status].rank - drop)];
 }
 
 /** Impact of a monitored facility's current status on the floor it serves, or null. */
 export function assessImpact(floor: Floor, facility: Place): ImpactAssessment | null {
-	const sensors = facilityStatus(facility);
-	if (!sensors || facility.floor !== floor.index) return null;
+	if (facility.floor !== floor.index) return null;
+	const sensors = facilityStatus(floor, facility);
+	if (!sensors) return null;
 	const idx = indexFloor(floor);
 	const blocks = serviceAreas(floor, idx, facility.kind).get(facility.room.id) ?? [];
-	const exposure = EXPOSURE[sensors.status];
+	const exposure = SIM.impact.exposure[sensors.status];
 	const active = exposure > 0;
 
 	const bySector = new Map<number, number[]>();

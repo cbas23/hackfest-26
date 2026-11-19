@@ -9,7 +9,7 @@
  * Routes come from the real tunnel pathfinder; directions are generated from the route.
  */
 import { LEVELS, SHAFTS } from '#lib/hollow/data.js';
-import type { RouteDraw } from '#lib/hollow/hollowMap.js';
+import type { RouteDraw } from '#lib/hollow/scene/route.js';
 import { findRoute, placesOn, type Place, type Route } from '#lib/hollow/nav.js';
 import type { Point } from '#lib/tunnels/generate.js';
 import type { Band, Report } from './engine.js';
@@ -36,12 +36,7 @@ export interface Task {
 	steps: Step[];
 }
 
-const placeCache = new Map<number, Place[]>();
-function places(level0: number) {
-	let p = placeCache.get(level0);
-	if (!p) placeCache.set(level0, (p = placesOn(hollowWorld().floor(level0))));
-	return p;
-}
+const places = (level0: number) => placesOn(hollowWorld().floor(level0));
 const centre = (p: Place) => ({ x: p.room.x + p.room.w / 2, y: p.room.y + p.room.h / 2 });
 const dist = (a: Place, b: { x: number; y: number }) =>
 	Math.hypot(centre(a).x - b.x, centre(a).y - b.y);

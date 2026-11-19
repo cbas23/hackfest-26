@@ -1,8 +1,12 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
-	import { HOLLOW_SEED, LEVELS } from '#lib/hollow/data.js';
-	import { createHollowMap, type HollowMap, type RouteDraw } from '#lib/hollow/hollowMap.js';
-	import { createHollow, type Floor } from '#lib/hollow/world.js';
+	import { LEVELS } from '#lib/hollow/data.js';
+	import { createHollowMap, type HollowMap } from '#lib/hollow/hollowMap.js';
+	import { levelTintOverlay } from '#lib/hollow/scene/levelTints.js';
+	import { radarOverlay } from '#lib/hollow/scene/radar.js';
+	import { routeOverlay, type RouteDraw } from '#lib/hollow/scene/route.js';
+	import { getHollow } from '#lib/hollow/simulation.js';
+	import { floorBounds } from '#lib/hollow/world.js';
 	import type { Building } from './places.js';
 
 	export interface RadarHit {
@@ -45,30 +49,18 @@
 		band?: { lo: number; hi: number } | null;
 	} = $props();
 
-	const hollow = createHollow(HOLLOW_SEED);
+	const hollow = getHollow();
 	let container: HTMLDivElement;
 	let scene = $state.raw<HollowMap | undefined>();
 
-	function cityBounds(f: Floor) {
-		let [minX, minY, maxX, maxY] = [Infinity, Infinity, -Infinity, -Infinity];
-		f.map.grid.forEach((row, y) =>
-			row.forEach((t, x) => {
-				if (t === 'void') return;
-				minX = Math.min(minX, x);
-				maxX = Math.max(maxX, x);
-				minY = Math.min(minY, y);
-				maxY = Math.max(maxY, y);
-			})
-		);
-		return [minX, minY, maxX, maxY] as const;
-	}
 	const anchors = LEVELS.map((l) => {
-		const [, minY, maxX, maxY] = cityBounds(hollow.floor(l.index));
+		const [, minY, maxX, maxY] = floorBounds(hollow.floor(l.index));
 		return { x: maxX + 2, y: (minY + maxY) / 2 };
 	});
 
 	$effect(() => {
-		scene?.setLevelTints(
+		if (!scene) return;
+		levelTintOverlay(scene).set(
 			levels.map((l, i) => ({
 				level: i,
 				color: l.color,
@@ -91,7 +83,7 @@
 		const color = radarColor;
 		untrack(() => {
 			const t = key ? target?.building : null;
-			s?.setRadar(t ? { level: t.level - 1, x: t.x, y: t.y, radius, color } : null);
+			if (s) radarOverlay(s).set(t ? { level: t.level - 1, x: t.x, y: t.y, radius, color } : null);
 		});
 	});
 
@@ -115,7 +107,7 @@
 		const s = scene;
 		const r = route;
 		untrack(() => {
-			s?.setRoute(r);
+			if (s) routeOverlay(s).set(r);
 			if (s && r) frame(s);
 		});
 	});
@@ -126,7 +118,7 @@
 		if (rb) s.fitBounds(...rb);
 		else if (focusNow === null) s.frameStack();
 		else if (radarOn && target) flyToTarget(s, target.building);
-		else s.fitBounds(...cityBounds(floors[focusNow]));
+		else s.fitBounds(...floorBounds(floors[focusNow]));
 	}
 	function flyToTarget(s: HollowMap, b: Building) {
 		s.flyTo(b.x, b.y, { distance: radius * 2.6 });

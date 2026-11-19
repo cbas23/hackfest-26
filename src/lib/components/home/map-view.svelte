@@ -1,22 +1,23 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { Room } from '#lib/tunnels/generate.js';
-	import { FACILITY_INFO, LEVELS, SHAFTS, SHAFT_COLORS } from '#lib/hollow/data.js';
-	import { placesOn, type Place, type PlaceKind } from '#lib/hollow/nav.js';
+	import { LEVELS } from '#lib/hollow/data.js';
+	import { formatCompact, formatCount, formatDepth, formatPercent } from '#lib/hollow/format.js';
+	import { placeCentre, placeColor, type Place, type PlaceKind } from '#lib/hollow/nav.js';
 	import { createHollowMap, type HollowMap, type Pick } from '#lib/hollow/hollowMap.js';
-	import { facilityStatus, STATUS_INFO, type Status } from '#lib/hollow/sensors.js';
-	import { assessImpact } from '#lib/hollow/impact.js';
-	import type { Floor } from '#lib/hollow/world.js';
-	import { hollow } from './hollow.js';
-	import { sicknessOf } from '#lib/hollow/sickness.js';
-	import { alertsOn, alertTotals, type HollowAlert } from '#lib/hollow/alerts.js';
+	import { STATUS_INFO, type Status } from '#lib/hollow/sensors.js';
+	import { getHollow, simulateFloor } from '#lib/hollow/simulation.js';
+	import { floorBounds, type Floor } from '#lib/hollow/world.js';
+	import { sicknessTotals } from '#lib/hollow/sickness.js';
+	import { alertTotals, type HollowAlert } from '#lib/hollow/alerts.js';
 	import { Tween } from 'svelte/motion';
 	import { cubicOut } from 'svelte/easing';
 	import ZapOffIcon from '@lucide/svelte/icons/zap-off';
 	import WindIcon from '@lucide/svelte/icons/wind';
 	import SirenIcon from '@lucide/svelte/icons/siren';
 	import SicknessScale from './sickness-scale.svelte';
-	import { home, registerMapNav, SECTION_LENS } from './home-state.svelte.js';
+	import { home, openLens, registerMapNav } from './home-state.svelte.js';
+	import { bindMapKeys, KEY_HINTS, ZOOM_STEP } from './map-keys.js';
 	import { cn } from '#lib/utils.js';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as ButtonGroup from '#lib/components/ui/button-group/index.js';
@@ -27,13 +28,8 @@
 	import MinusIcon from '@lucide/svelte/icons/minus';
 	import ScanIcon from '@lucide/svelte/icons/scan';
 
-	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- cache, never read by the template
-	const placeCache = new Map<number, Place[]>();
-	const placesFor = (f: Floor) => {
-		let p = placeCache.get(f.index);
-		if (!p) placeCache.set(f.index, (p = placesOn(f)));
-		return p;
-	};
+	const hollow = getHollow();
+	const allFloors = () => LEVELS.map((l) => hollow.floor(l.index));
 
 	let section: HTMLElement;
 	let container: HTMLDivElement;
@@ -72,45 +68,9 @@
 		home.overview = overview;
 	});
 	const floor = $derived(hollow.floor(levelIndex));
-
-	const KIND_COLOR: Record<PlaceKind, string> = {
-		block: 'var(--chart-1)',
-		farm: 'var(--chart-2)',
-		plant: 'var(--chart-3)',
-		shaft: 'var(--chart-4)',
-		air: FACILITY_INFO.air.color,
-		water: FACILITY_INFO.water.color,
-		clinic: FACILITY_INFO.clinic.color,
-		market: FACILITY_INFO.market.color,
-		directorate: FACILITY_INFO.directorate.color
-	};
-	const placeColor = (p: Place) =>
-		p.kind === 'shaft' ? SHAFT_COLORS[SHAFTS[p.shaft!].status] : KIND_COLOR[p.kind];
-
-	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- cache, never read by the template
-	const boundsCache = new Map<number, readonly [number, number, number, number]>();
-	/** Bounding box of the dug area on a floor, in tiles (scans the whole grid, so cached). */
-	function cityBounds(f: Floor) {
-		let b = boundsCache.get(f.index);
-		if (!b) boundsCache.set(f.index, (b = scanBounds(f)));
-		return b;
-	}
-	function scanBounds(f: Floor) {
-		let minX = Infinity;
-		let minY = Infinity;
-		let maxX = -Infinity;
-		let maxY = -Infinity;
-		f.map.grid.forEach((row, y) =>
-			row.forEach((t, x) => {
-				if (t === 'void') return;
-				minX = Math.min(minX, x);
-				maxX = Math.max(maxX, x);
-				minY = Math.min(minY, y);
-				maxY = Math.max(maxY, y);
-			})
-		);
-		return [minX, minY, maxX, maxY] as const;
-	}
+	const sim = $derived(simulateFloor(floor));
+	/** The simulation of the selected place's floor. */
+	const selectedSim = $derived(selected ? simulateFloor(hollow.floor(selected.floor)) : null);
 
 	// ── Levels ───────────────────────────────────────────────────────────────
 	function goTo(index: number) {
@@ -124,7 +84,7 @@
 		hoverStackLevel(null);
 		tagHoverLevel = null;
 		scene?.showFloor(hollow.floor(index), dir);
-		if (leaving) scene?.fitBounds(...cityBounds(hollow.floor(index)));
+		if (leaving) scene?.fitBounds(...floorBounds(hollow.floor(index)));
 		scene?.setHover(null);
 		scene?.setSelection(selected?.floor === index ? selected.room : null);
 	}
@@ -134,15 +94,12 @@
 		overview = on;
 		if (!on) {
 			scene?.setOverview(false, []);
-			scene?.fitBounds(...cityBounds(floor));
+			scene?.fitBounds(...floorBounds(floor));
 			return;
 		}
 		hover = null;
 		scene?.setHover(null);
-		scene?.setOverview(
-			true,
-			LEVELS.map((_, i) => hollow.floor(i))
-		);
+		scene?.setOverview(true, allFloors());
 	}
 
 	/** Toggle group value: 'all' for the stacked view, else a level code. */
@@ -155,12 +112,12 @@
 
 	function fitView() {
 		if (overview) scene?.frameStack();
-		else scene?.fitBounds(...cityBounds(floor));
+		else scene?.fitBounds(...floorBounds(floor));
 	}
 
 	// ── Selection ────────────────────────────────────────────────────────────
 	const placeOf = (f: Floor, room: Room | null) =>
-		room ? (placesFor(f).find((p) => p.room.id === room.id) ?? null) : null;
+		room ? (simulateFloor(f).places.find((p) => p.room.id === room.id) ?? null) : null;
 
 	function select(p: Place | null) {
 		selected = p;
@@ -170,8 +127,8 @@
 	function focusPlace(p: Place) {
 		goTo(p.floor);
 		select(p);
-		const r = p.room;
-		scene?.flyTo(r.x + r.w / 2, r.y + r.h / 2, { distance: Math.min(distance, 70) });
+		const c = placeCentre(p);
+		scene?.flyTo(c.x, c.y, { distance: Math.min(distance, 70) });
 	}
 
 	function focus(level: number, x: number, y: number) {
@@ -204,10 +161,12 @@
 		status?: Status;
 		alert?: HollowAlert;
 	}
+	/** Pin height above the floor, by kind: over the roof of its building. */
+	const pinHeight = (kind: PlaceKind) => (kind === 'shaft' ? 7.5 : kind === 'plant' ? 4.5 : 3.5);
 	const pins = $derived.by<PinSpec[]>(() => {
 		if (overview) {
 			return LEVELS.map((l) => {
-				const [, minY, maxX, maxY] = cityBounds(hollow.floor(l.index));
+				const [, minY, maxX, maxY] = floorBounds(hollow.floor(l.index));
 				return {
 					key: `level-${l.code}`,
 					x: maxX + 2,
@@ -222,7 +181,7 @@
 		}
 		const alertPins: PinSpec[] =
 			lens === 'alerts'
-				? alertsOn(floor).alerts.map((a) => ({
+				? sim.alerts.alerts.map((a) => ({
 						key: `alert-${a.id}`,
 						x: a.x,
 						y: a.y,
@@ -234,19 +193,18 @@
 						alert: a
 					}))
 				: [];
-		return placesFor(floor)
+		return sim.places
 			.filter((p) => p.kind !== 'block' && !(lens === 'alerts' && p.kind === 'air'))
 			.map((p): PinSpec => ({
 				key: p.key,
-				x: p.room.x + p.room.w / 2,
-				y: p.room.y + p.room.h / 2,
-				h: p.kind === 'shaft' ? 7.5 : p.kind === 'plant' ? 4.5 : 3.5,
+				...placeCentre(p),
+				h: pinHeight(p.kind),
 				level: levelIndex,
 				kind: p.kind,
 				label: p.label,
 				color: placeColor(p),
 				place: p,
-				status: facilityStatus(p)?.status
+				status: sim.status(p)?.status
 			}))
 			.concat(alertPins);
 	});
@@ -261,7 +219,7 @@
 	const showNames = $derived(distance < 200);
 
 	// ── Impact assessment (selected facility → affected neighborhoods) ──────
-	const impact = $derived(selected ? assessImpact(hollow.floor(selected.floor), selected) : null);
+	const impact = $derived(selected && selectedSim ? selectedSim.impact(selected) : null);
 	$effect(() => {
 		const show = impact?.active && impact.facility.floor === levelIndex;
 		scene?.setImpact(
@@ -277,28 +235,18 @@
 	});
 
 	// ── Data lens (driven by the open sidebar section) ──────────────────────
-	const lens = $derived(SECTION_LENS[home.section] ?? null);
+	const lens = $derived(openLens());
 	$effect(() => scene?.setLens(lens));
 	/** Sick share across the shown level (or every level in the stacked view). */
-	const sickTotals = $derived.by(() => {
-		if (lens !== 'sickness') return null;
-		const floors = overview ? LEVELS.map((l) => hollow.floor(l.index)) : [floor];
-		let reported = 0;
-		let sick = 0;
-		for (const f of floors)
-			for (const s of sicknessOf(f))
-				if (s) {
-					reported += s.reported;
-					sick += s.sick;
-				}
-		return { reported, sick, share: sick / Math.max(1, reported) };
-	});
+	const sickTotals = $derived(
+		lens === 'sickness' ? sicknessTotals(overview ? allFloors() : [floor]) : null
+	);
 	// ── Alerts lens ─────────────────────────────────────────────────────────
-	const alertList = $derived.by(() => {
-		if (lens !== 'alerts') return null;
-		const floors = overview ? LEVELS.map((l) => hollow.floor(l.index)) : [floor];
-		return floors.flatMap((f) => alertsOn(f).alerts);
-	});
+	const alertList = $derived(
+		lens === 'alerts'
+			? (overview ? allFloors() : [floor]).flatMap((f) => simulateFloor(f).alerts.alerts)
+			: null
+	);
 	const totals = $derived(alertList ? alertTotals(alertList) : null);
 	const SEVERITIES: Status[] = ['critical', 'high', 'warning'];
 	const bySeverity = $derived(
@@ -313,7 +261,6 @@
 		darkT.set(totals?.blackoutResidents ?? 0);
 		airT.set(totals?.airResidents ?? 0);
 	});
-	const compact = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
 	// The worst blocks on the shown level throb in the 3D map.
 	$effect(() => {
 		if (lens !== 'alerts' || overview) {
@@ -321,78 +268,18 @@
 			return;
 		}
 		const rooms: { room: Room; color: string }[] = [];
-		for (const a of alertsOn(floor).alerts) {
+		for (const a of sim.alerts.alerts) {
 			if (a.severity !== 'critical') continue;
-			const color =
-				a.kind === 'blackout' ? STATUS_INFO.critical.color : STATUS_INFO[a.severity].color;
-			for (const id of a.blocks) rooms.push({ room: floor.map.rooms[id], color });
+			for (const id of a.blocks)
+				rooms.push({ room: floor.map.rooms[id], color: STATUS_INFO[a.severity].color });
 		}
 		scene?.setAlertPulse(rooms);
 	});
-
 	const selectedSickness = $derived(
-		lens === 'sickness' && selected?.kind === 'block'
-			? sicknessOf(hollow.floor(selected.floor))[selected.room.id]
+		lens === 'sickness' && selected?.kind === 'block' && selectedSim
+			? selectedSim.sickness[selected.room.id]
 			: null
 	);
-
-	const HINTS: [string[], string][] = [
-		[['Drag'], 'pan'],
-		[['Right-drag'], 'rotate'],
-		[['Scroll'], 'zoom'],
-		[['Q', 'E'], 'change level'],
-		[['O'], 'all levels'],
-		[['F'], 'fit level']
-	];
-
-	// ── Keyboard ─────────────────────────────────────────────────────────────
-	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- never read by the template
-	const held = new Set<string>();
-	const PAN_KEYS: Record<string, [number, number]> = {
-		arrowleft: [-1, 0],
-		a: [-1, 0],
-		arrowright: [1, 0],
-		d: [1, 0],
-		arrowup: [0, -1],
-		w: [0, -1],
-		arrowdown: [0, 1],
-		s: [0, 1]
-	};
-	function syncPan() {
-		let x = 0;
-		let y = 0;
-		for (const k of held) {
-			x += PAN_KEYS[k][0];
-			y += PAN_KEYS[k][1];
-		}
-		scene?.setPan(Math.sign(x), Math.sign(y));
-	}
-	/** Only steer the map when focus isn't in another widget (e.g. the sidebar). */
-	const forMap = (e: KeyboardEvent) =>
-		!(e.metaKey || e.ctrlKey || e.altKey) &&
-		(e.target === document.body || (e.target instanceof Node && section.contains(e.target)));
-
-	function onKeyDown(e: KeyboardEvent) {
-		if (!forMap(e)) return;
-		const k = e.key.toLowerCase();
-		if (k in PAN_KEYS) {
-			held.add(k);
-			syncPan();
-			e.preventDefault();
-		} else if (k === 'pagedown' || k === 'e' || k === ']') goTo(levelIndex + 1);
-		else if (k === 'pageup' || k === 'q' || k === '[') goTo(levelIndex - 1);
-		else if (k >= '1' && k <= String(LEVELS.length)) goTo(+k - 1);
-		else if (k === '+' || k === '=') scene?.zoomBy(1.5);
-		else if (k === '-' || k === '_') scene?.zoomBy(1 / 1.5);
-		else if (k === 'n') scene?.resetNorth();
-		else if (k === 'f') fitView();
-		else if (k === 'o') setOverview(!overview);
-		else if (k === 'escape') {
-			if (selected) select(null);
-			else if (overview) setOverview(false);
-		} else return;
-		if (k.startsWith('page')) e.preventDefault();
-	}
 
 	onMount(() => {
 		const s = createHollowMap(container, {
@@ -414,25 +301,25 @@
 		scene = s;
 		registerMapNav({ goTo, setOverview, focus });
 		s.showFloor(hollow.floor(0), 0);
-		s.fitBounds(...cityBounds(hollow.floor(0)));
+		s.fitBounds(...floorBounds(hollow.floor(0)));
 		// Open on the all-levels stack.
 		setOverview(true);
 
-		const onKeyUp = (e: KeyboardEvent) => {
-			held.delete(e.key.toLowerCase());
-			syncPan();
-		};
-		const onBlur = () => {
-			held.clear();
-			syncPan();
-		};
-		window.addEventListener('keydown', onKeyDown);
-		window.addEventListener('keyup', onKeyUp);
-		window.addEventListener('blur', onBlur);
+		const unbindKeys = bindMapKeys(section, LEVELS.length, {
+			pan: (x, y) => s.setPan(x, y),
+			step: (d) => goTo(levelIndex + d),
+			goTo,
+			zoom: (f) => s.zoomBy(f),
+			north: () => s.resetNorth(),
+			fit: fitView,
+			toggleOverview: () => setOverview(!overview),
+			escape: () => {
+				if (selected) select(null);
+				else if (overview) setOverview(false);
+			}
+		});
 		return () => {
-			window.removeEventListener('keydown', onKeyDown);
-			window.removeEventListener('keyup', onKeyUp);
-			window.removeEventListener('blur', onBlur);
+			unbindKeys();
 			clearTimeout(leaveTimer);
 			registerMapNav(null);
 			s.dispose();
@@ -480,8 +367,7 @@
 					>
 						<span class="font-semibold text-primary">{l.code}</span>
 						{l.name}
-						<span class="text-muted-foreground tabular-nums">−{l.depth.toLocaleString('en')} m</span
-						>
+						<span class="text-muted-foreground tabular-nums">{formatDepth(l.depth)}</span>
 					</Button>
 				{:else if p.alert}
 					{@const a = p.alert}
@@ -518,14 +404,19 @@
 							>
 						{/if}
 					</button>
-				{:else}
+				{:else if p.place}
+					{@const place = p.place}
 					<button
 						class="pointer-events-auto absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center"
-						onclick={() => p.place && focusPlace(p.place)}
+						onclick={() => focusPlace(place)}
 						aria-label={p.label}
 					>
 						<span class="relative">
-							<PlaceIcon kind={p.kind} color={p.color} size={p.kind === 'shaft' ? 28 : 24} />
+							<PlaceIcon
+								kind={place.kind}
+								color={p.color}
+								size={place.kind === 'shaft' ? 28 : 24}
+							/>
 							{#if p.status}
 								<span
 									class="absolute -top-0.5 -right-0.5 size-2.5 rounded-full border-2 border-background"
@@ -557,8 +448,10 @@
 		>
 			<ToggleGroup.Item class="flex-1" value="all" aria-label="All levels">All</ToggleGroup.Item>
 			{#each LEVELS as l (l.code)}
-				<ToggleGroup.Item class="flex-1" value={l.code} aria-label="{l.name}, −{l.depth} m"
-					>{l.code}</ToggleGroup.Item
+				<ToggleGroup.Item
+					class="flex-1"
+					value={l.code}
+					aria-label="{l.name}, {formatDepth(l.depth)}">{l.code}</ToggleGroup.Item
 				>
 			{/each}
 		</ToggleGroup.Root>
@@ -613,7 +506,7 @@
 						><ZapOffIcon class="size-3" aria-hidden="true" /> In the dark</span
 					>
 					<span class="text-base font-semibold text-foreground tabular-nums"
-						>{compact.format(darkT.current)}</span
+						>{formatCompact(darkT.current)}</span
 					>
 				</div>
 				<div class="flex flex-col gap-0.5 rounded-md border bg-card/60 p-2">
@@ -621,7 +514,7 @@
 						><WindIcon class="size-3" aria-hidden="true" /> Bad air</span
 					>
 					<span class="text-base font-semibold text-foreground tabular-nums"
-						>{compact.format(airT.current)}</span
+						>{formatCompact(airT.current)}</span
 					>
 				</div>
 			</div>
@@ -640,9 +533,9 @@
 			<SicknessScale />
 			<p class="text-muted-foreground">
 				<span class="font-semibold text-foreground tabular-nums"
-					>{Math.round(sickTotals.share * 100)}%</span
+					>{formatPercent(sickTotals.share)}</span
 				>
-				of {sickTotals.reported.toLocaleString('en')} reported residents sick
+				of {formatCount(sickTotals.reported)} reported residents sick
 			</p>
 		</div>
 	{/if}
@@ -669,13 +562,18 @@
 			</svg>
 		</Button>
 		<ButtonGroup.Root orientation="vertical" aria-label="Zoom">
-			<Button variant="outline" size="icon" onclick={() => scene?.zoomBy(1.5)} aria-label="Zoom in">
+			<Button
+				variant="outline"
+				size="icon"
+				onclick={() => scene?.zoomBy(ZOOM_STEP)}
+				aria-label="Zoom in"
+			>
 				<PlusIcon />
 			</Button>
 			<Button
 				variant="outline"
 				size="icon"
-				onclick={() => scene?.zoomBy(1 / 1.5)}
+				onclick={() => scene?.zoomBy(1 / ZOOM_STEP)}
 				aria-label="Zoom out"
 			>
 				<MinusIcon />
@@ -687,7 +585,7 @@
 		<PlaceCard
 			class="absolute bottom-4 left-4 z-20"
 			place={selected}
-			floor={hollow.floor(selected.floor)}
+			sim={simulateFloor(hollow.floor(selected.floor))}
 			color={placeColor(selected)}
 			{impact}
 			sickness={selectedSickness}
@@ -698,7 +596,7 @@
 			class="pointer-events-none absolute bottom-4 left-4 hidden items-center gap-x-4 text-[11px] text-muted-foreground xl:flex"
 			aria-label="Map controls"
 		>
-			{#each HINTS as [keys, action] (action)}
+			{#each KEY_HINTS as [keys, action] (action)}
 				<li class="flex items-center gap-1.5">
 					{#each keys as k (k)}
 						<kbd

@@ -1,8 +1,8 @@
 import { LEVELS } from './data.js';
 import { assessImpact, neighborhoodOf } from './impact.js';
-import { placesOn, type Place } from './nav.js';
+import { placeCentre, placesOn, type Place } from './nav.js';
 import { facilityStatus, STATUS_INFO, type Status } from './sensors.js';
-import type { Floor } from './world.js';
+import { perFloor, type Floor } from './world.js';
 
 /**
  * Blackout and air alerts (simulated). Two sources, both already in the world:
@@ -68,12 +68,8 @@ function anchor(floor: Floor, ids: number[]) {
 	return { x: best.x + best.w / 2, y: best.y + best.h / 2 };
 }
 
-const cache = new Map<number, FloorAlerts>();
-
 /** Every blackout and air alert on one floor, worst first. */
-export function alertsOn(floor: Floor): FloorAlerts {
-	const hit = cache.get(floor.index);
-	if (hit) return hit;
+export const alertsOn = perFloor((floor: Floor): FloorAlerts => {
 	const level = LEVELS[floor.index];
 	const blocks = new Map<number, BlockAlert>();
 	const mark = (id: number, key: keyof BlockAlert, s: Status) => {
@@ -115,7 +111,7 @@ export function alertsOn(floor: Floor): FloorAlerts {
 	const sources = new Set<number>();
 	for (const p of placesOn(floor)) {
 		if (p.kind !== 'air') continue;
-		const sensors = facilityStatus(p);
+		const sensors = facilityStatus(floor, p);
 		if (!sensors || sensors.status === 'normal') continue;
 		const impact = assessImpact(floor, p);
 		if (!impact) continue;
@@ -135,17 +131,14 @@ export function alertsOn(floor: Floor): FloorAlerts {
 			detail: `${worst.label} ${worst.text}`,
 			residents: impact.active ? impact.affectedTotal : impact.dependentTotal,
 			blocks: ids,
-			x: p.room.x + p.room.w / 2,
-			y: p.room.y + p.room.h / 2,
+			...placeCentre(p),
 			place: p
 		});
 	}
 
 	alerts.sort((a, b) => rank(b.severity) - rank(a.severity) || b.residents - a.residents);
-	const result = { alerts, blocks, sources };
-	cache.set(floor.index, result);
-	return result;
-}
+	return { alerts, blocks, sources };
+});
 
 export interface AlertTotals {
 	count: number;

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { Point } from '#lib/tunnels/generate.js';
+import { hash01 } from '#lib/random.js';
 
 export type V3 = [number, number, number];
 export type Dir = 'n' | 's' | 'w' | 'e';
@@ -175,13 +176,7 @@ export function toGeometry(a: MeshArrays) {
 	return g;
 }
 
-export const hash01 = (n: number) => {
-	let h = Math.imul(n + 0x9e3779b9, 0x85ebca6b);
-	h ^= h >>> 13;
-	h = Math.imul(h, 0xc2b2ae35);
-	h ^= h >>> 16;
-	return (h >>> 0) / 4294967296;
-};
+export { hash01 };
 
 /** Brightness jitter, so faces read as individual blocks. */
 export const shade = (c: THREE.Color, seed: number, amount = 0.1) =>
