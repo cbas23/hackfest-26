@@ -59,7 +59,7 @@
 			title: 'Tunnels',
 			summary: 'The network and blocked passages',
 			icon: WaypointsIcon,
-			color: 'var(--map-tunnels-road)',
+			color: 'var(--map-tunnels-icon)',
 			content: tunnelsInfo
 		}
 	];
@@ -104,7 +104,7 @@
 
 {#snippet tunnelsInfo()}
 	<p>
-		The tunnel network stands out over darkened chambers. Blocked stretches glow red where they
+		The tunnel network stands out over faded chambers. Blocked stretches are painted red where they
 		can't be passed.
 	</p>
 	<TunnelLegend class="text-muted-foreground" />

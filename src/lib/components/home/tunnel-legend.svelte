@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { cn } from '#lib/utils.js';
 
-	/** Key for the tunnels lens: open tunnels, blocked tiles, and the darkened chambers. */
+	/** Key for the tunnels lens: open tunnels, blocked tiles, and the faded chambers. */
 	let { class: className }: { class?: string } = $props();
 
 	const KEY = [

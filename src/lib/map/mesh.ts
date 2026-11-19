@@ -69,7 +69,14 @@ export interface MeshInput {
 	origin: Point;
 	seed: number;
 	jitter: number;
-	tunnel: { top: RGB; wall: RGB; under: RGB; height: number } | null;
+	tunnel: {
+		top: RGB;
+		wall: RGB;
+		under: RGB;
+		height: number;
+		/** Tiles (row-major index) drawn in their own colour. */
+		paint: { tile: number; top: RGB }[];
+	} | null;
 }
 
 export interface MeshOutput {
@@ -126,13 +133,15 @@ export function buildMeshes(input: MeshInput): MeshOutput {
 	if (input.tunnel) {
 		const b = new Builder();
 		const th = input.tunnel.height;
-		const color = fromRGB(input.tunnel.top);
+		const base = fromRGB(input.tunnel.top);
+		const painted = new Map(input.tunnel.paint.map((p) => [p.tile, fromRGB(p.top)]));
 		const height = road.length / width;
 		for (let y = 0; y < height; y++)
 			for (let x = 0; x < width; x++) {
 				if (!isRoad(x, y)) continue;
 				const x0 = wx(x);
 				const z0 = wz(y);
+				const color = painted.get(y * width + x) ?? base;
 				// Only adjoining tunnel tiles share an open face. Walls stay beside rooms so the
 				// tunnel owns its full silhouette (and stencil mask), even at a door.
 				for (const [d, dx, dy] of SIDES)

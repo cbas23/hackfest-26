@@ -33,6 +33,8 @@ export interface TunnelLook {
 	underside?: Color;
 	/** Height in blocks (default 1.5). */
 	height?: number;
+	/** Tiles drawn in their own colour instead of `top` (e.g. a closed section). */
+	paint?: { x: number; y: number; color: Color }[];
 }
 
 /**
@@ -87,6 +89,8 @@ export interface LayerStyle {
 	room?: (room: Room) => RoomLook | null;
 	/** Opacity of rooms where they stand in front of a tunnel; 0 turns see-through off. */
 	ghostOpacity?: number;
+	/** Opacity of every room (default 1). Below 1 the rooms are see-through everywhere. */
+	roomOpacity?: number;
 	/** Seed for per-block brightness jitter. */
 	seed?: number;
 	/** Scales the brightness jitter (0 = flat colours, default 1). */
@@ -181,6 +185,15 @@ function ghostedPair(
 	});
 	return [opaque, ghost] as const;
 }
+
+/** Rooms faded everywhere, whatever is behind them. */
+const seeThrough = (opacity: number) =>
+	new THREE.MeshBasicMaterial({
+		vertexColors: true,
+		transparent: true,
+		opacity,
+		depthWrite: false
+	});
 
 const rgb = (c: Color) => toRGB(toColor(c));
 
@@ -351,7 +364,11 @@ export class Layer implements MapLayer {
 							under: tunnel.underside
 								? rgb(tunnel.underside)
 								: toRGB(wall.clone().multiplyScalar(0.6)),
-							height: tunnel.height ?? 1.5
+							height: tunnel.height ?? 1.5,
+							paint: (tunnel.paint ?? []).map((p) => ({
+								tile: p.y * map.width + p.x,
+								top: rgb(p.color)
+							}))
 						}
 					: null
 		};
@@ -416,11 +433,12 @@ export class Layer implements MapLayer {
 			true
 		);
 		const ghost = style.ghostOpacity ?? DEFAULT_GHOST;
+		const roomOpacity = style.roomOpacity ?? 1;
 		const version = ++this.version;
 		const stale = () => version !== this.version || this.disposed;
 		this.ready = meshAsync(input).then(async (out) => {
 			if (stale()) return;
-			const next = this.makeBody(out, ghost);
+			const next = this.makeBody(out, ghost, roomOpacity);
 			// Compile its shaders off the critical path, so the swap itself never stalls a frame.
 			await this.prepare?.(next.body).catch(() => {});
 			if (stale()) disposeTree(next.body);
@@ -431,7 +449,7 @@ export class Layer implements MapLayer {
 
 	/** Swap freshly built meshes in for the current ones. */
 	/** Meshes for freshly built geometry, not yet on screen. */
-	private makeBody(out: MeshOutput, ghost: number) {
+	private makeBody(out: MeshOutput, ghost: number, roomOpacity: number) {
 		const body = new THREE.Group();
 		const parts = new Map<string, THREE.Object3D[]>();
 		// Tunnels mark the stencil buffer wherever they are on screen; rooms are drawn twice
@@ -455,8 +473,12 @@ export class Layer implements MapLayer {
 			});
 			mesh(toGeometry(out.tunnels), tunnelMat, 1);
 		}
-		const solidMats = ghostedPair((p) => new THREE.MeshBasicMaterial(p), ghost);
-		const glowMats = ghostedPair((p) => new THREE.MeshBasicMaterial(p), ghost);
+		const roomMats = () =>
+			roomOpacity < 1
+				? [seeThrough(roomOpacity)]
+				: ghostedPair((p) => new THREE.MeshBasicMaterial(p), ghost);
+		const solidMats = roomMats();
+		const glowMats = roomMats();
 		for (const { part, solid, glow } of out.parts) {
 			const objs: THREE.Object3D[] = [];
 			for (const [arrays, mats] of [
@@ -498,7 +520,8 @@ export class Layer implements MapLayer {
 		if (!rooms.length) return;
 		const out = buildMeshes(this.meshInput(rooms, false));
 		// Transparent (at full opacity) so they sort after transparent overlays at a lower order.
-		const params = { vertexColors: true, transparent: true, opacity: 1, depthWrite: true };
+		const opacity = this.style.roomOpacity ?? 1;
+		const params = { vertexColors: true, transparent: true, opacity, depthWrite: opacity >= 1 };
 		for (const { part, solid, glow } of out.parts) {
 			const objs: THREE.Object3D[] = [];
 			for (const [arrays, make] of [

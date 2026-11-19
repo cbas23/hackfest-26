@@ -33,6 +33,8 @@ const lensTunnel = () => {
 
 /** Height of a tunnel, in blocks. The top block is a half block. */
 export const TUNNEL_H = 1.5;
+/** How see-through the chambers are under the tunnels lens. */
+const TUNNELS_ROOM_OPACITY = 0.14;
 /** Base height of a habitation block, in blocks; bigger blocks stand taller. */
 const ROOM_BASE_H = 2;
 /** Shaft landings are open well-tubes rising out of the level. */
@@ -51,6 +53,8 @@ function paletteFor(index: number) {
 	return {
 		road: drift('map-tunnel'),
 		tunnelWall: drift('map-tunnel-wall'),
+		tunnelsRoad: drift('map-tunnels-road'),
+		tunnelsWall: drift('map-tunnels-wall'),
 		placeWall: drift('map-room-wall'),
 		placeRoof: drift('map-room-roof'),
 		blockWallDark: drift('map-room-dark-wall'),
@@ -201,21 +205,28 @@ export function floorStyle(floor: Floor, lens: MapLens | null = null): LayerStyl
 	const darkWall = token('map-alert-dark-wall');
 	const tunnelRoomRoof = token('map-tunnels-room-roof');
 	const tunnelRoomWall = token('map-tunnels-room-wall');
+	const blocked = token('map-tunnels-blocked');
 	return {
 		seed: floor.index * 1_000_003,
 		// A data lens is read off the rooms alone: they go fully opaque with flat colours (no
 		// per-block brightness jitter skewing the scale), and the tunnels flatten into a
 		// near-black trace on the floor, too low to ever cover a room or its highlight.
-		// The tunnels lens does the opposite: the network glows at full height and every
-		// chamber sinks below it, flat and dark.
+		// The tunnels lens does the opposite: the network stands at full height, a shade
+		// darker than usual, with its blocked sections painted red, and every chamber sinks
+		// below it, flat and almost see-through.
 		...(tunnels
 			? {
 					tunnel: {
-						top: token('map-tunnels-road'),
-						wall: token('map-tunnels-wall'),
-						height: TUNNEL_H
+						top: c.tunnelsRoad,
+						wall: c.tunnelsWall,
+						height: TUNNEL_H,
+						paint: [...sim.blocked].map((k) => {
+							const [x, y] = k.split(',').map(Number);
+							return { x, y, color: blocked };
+						})
 					},
-					ghostOpacity: 0
+					ghostOpacity: 0,
+					roomOpacity: TUNNELS_ROOM_OPACITY
 				}
 			: lens
 				? { tunnel: lensTunnel(), ghostOpacity: 0, jitter: 0 }

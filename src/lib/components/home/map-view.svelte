@@ -14,6 +14,8 @@
 		simulateFloor,
 		waterTotals
 	} from '#lib/hollow/simulation.js';
+	import { isActive, type BlockedTunnelEvent } from '#lib/hollow/events.js';
+	import { TUNNEL_H } from '#lib/hollow/mapStyle.js';
 	import { WATER_STEPS } from '#lib/hollow/water.js';
 	import { AIR_STEPS } from '#lib/hollow/airflow.js';
 	import LayersIcon from '@lucide/svelte/icons/layers';
@@ -206,13 +208,14 @@
 		x: number;
 		y: number;
 		h: number;
-		kind: PlaceKind | 'level' | 'alert' | 'home';
+		kind: PlaceKind | 'level' | 'alert' | 'home' | 'blocked';
 		level: number;
 		label: string;
 		color: string;
 		place?: Place;
 		status?: Status;
 		alert?: HollowAlert;
+		blocked?: BlockedTunnelEvent;
 	}
 	/** Pin height above the floor, by kind: over the roof of its building. */
 	const pinHeight = (kind: PlaceKind) => (kind === 'shaft' ? 7.5 : kind === 'plant' ? 4.5 : 3.5);
@@ -231,6 +234,32 @@
 				}
 			: null
 	);
+	/**
+	 * Tunnels lens: a pulsing red dot on each active blocked tunnel, on the shown level or on
+	 * every level in the all-levels view. It sits on the stretch's middle tile.
+	 */
+	const blockedPins = $derived.by<PinSpec[]>(() => {
+		if (lens !== 'tunnels') return [];
+		void live.version;
+		return (overview ? allFloors() : [floor]).flatMap((f) =>
+			simulateFloor(f)
+				.local.blockedTunnels.filter((e) => isActive(e) && e.tiles.length)
+				.map((e): PinSpec => {
+					const mid = e.tiles[Math.floor(e.tiles.length / 2)];
+					return {
+						key: `blocked-${e.id}`,
+						x: mid.x + 0.5,
+						y: mid.y + 0.5,
+						h: TUNNEL_H + 0.2,
+						level: f.index,
+						kind: 'blocked',
+						label: e.reason,
+						color: 'var(--map-tunnels-blocked)',
+						blocked: e
+					};
+				})
+		);
+	});
 	const pins = $derived.by<PinSpec[]>(() => {
 		const homePins = homePin ? [homePin] : [];
 		if (overview) {
@@ -246,7 +275,7 @@
 					label: l.name,
 					color: 'var(--foreground)'
 				};
-			}).concat(homePins);
+			}).concat(blockedPins, homePins);
 		}
 		void live.version;
 		const floorAlerts = alertMode ? floorState(floor) : null;
@@ -278,7 +307,7 @@
 				place: p,
 				status: sim.status(p)?.status
 			}))
-			.concat(alertPins, homePins);
+			.concat(alertPins, blockedPins, homePins);
 	});
 	const pinEls = $state<Record<string, HTMLElement>>({});
 	$effect(() => {
@@ -566,6 +595,21 @@
 										: place.label.replace('Block ', '')}</span
 								>
 							{/if}
+						</button>
+					{:else if p.kind === 'blocked'}
+						{@const b = p.blocked!}
+						<button
+							class="pointer-events-auto absolute grid size-6 -translate-x-1/2 -translate-y-1/2 place-items-center"
+							onclick={() => focus(b.level, p.x, p.y)}
+							aria-label="Blocked tunnel on {LEVELS[b.level].code}: {b.reason}"
+							title="Blocked: {b.reason}"
+						>
+							<span
+								class="absolute inset-0 animate-[ping_1.5s_cubic-bezier(0,0,0.2,1)_infinite] rounded-full bg-(--map-tunnels-blocked) opacity-75"
+							></span>
+							<span
+								class="relative size-3 rounded-full border border-[color-mix(in_oklch,var(--map-tunnels-blocked)_50%,black)] bg-(--map-tunnels-blocked) shadow-[0_0_8px_var(--map-tunnels-blocked)]"
+							></span>
 						</button>
 					{:else if p.alert}
 						{@const a = p.alert}

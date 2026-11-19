@@ -34,7 +34,7 @@ export type Token =
 	| `map-sick-${1 | 2 | 3 | 4 | 5}`
 	| `map-water-${1 | 2 | 3 | 4 | 5}`
 	| `map-air-${1 | 2 | 3 | 4 | 5}`
-	| `map-tunnels-${'road' | 'wall' | 'room-roof' | 'room-wall' | 'blocked' | 'blocked-wall'}`
+	| `map-tunnels-${'road' | 'wall' | 'room-roof' | 'room-wall' | 'blocked'}`
 	| 'map-alert-dark-roof'
 	| 'map-alert-dark-wall'
 	| `map-alert-${'air' | 'water'}-${1 | 2 | 3}`
