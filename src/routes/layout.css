@@ -148,6 +148,10 @@
 	--map-alert-air-1: color-mix(in oklch, oklch(0.78 0.13 200) 70%, var(--border));
 	--map-alert-air-2: oklch(0.75 0.17 60);
 	--map-alert-air-3: var(--destructive);
+	/* Unsafe water: clear blue going murky green-brown, then toxic. */
+	--map-alert-water-1: color-mix(in oklch, oklch(0.72 0.12 230) 65%, var(--border));
+	--map-alert-water-2: oklch(0.62 0.12 120);
+	--map-alert-water-3: oklch(0.55 0.13 85);
 
 	--map-route: var(--primary);
 	--map-route-border: var(--foreground);
@@ -310,6 +314,35 @@
 .alert-ring {
 	animation: alert-ring 1.4s ease-out infinite;
 }
+/* Water pins ripple outward like a drop hitting a surface. */
+@keyframes alert-ripple {
+	from {
+		transform: scale(0.5);
+		opacity: 0.8;
+	}
+	to {
+		transform: scale(2.2) scaleY(0.55);
+		opacity: 0;
+	}
+}
+.alert-ripple {
+	animation: alert-ripple 2.1s cubic-bezier(0.1, 0.6, 0.3, 1) infinite;
+}
+/* Cause-chain steps light up one after another. */
+@keyframes chain-step {
+	0%,
+	100% {
+		filter: brightness(1);
+	}
+	15% {
+		filter: brightness(1.6);
+	}
+}
+.chain-step {
+	animation:
+		alert-in 0.3s ease-out both,
+		chain-step 2.4s ease-in-out infinite;
+}
 .alert-blink {
 	animation: alert-blink 1s steps(2, start) infinite;
 }
@@ -318,6 +351,8 @@
 	.alert-critical::after,
 	.alert-vignette,
 	.alert-ring,
+	.alert-ripple,
+	.chain-step,
 	.alert-blink {
 		animation: none;
 	}
