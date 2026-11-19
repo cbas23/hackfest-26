@@ -1,4 +1,5 @@
 import type { MapLens } from '#lib/hollow/mapStyle.js';
+import type { AlertKind } from '#lib/hollow/alerts.js';
 
 /** UI state shared between the sidebar and the map. */
 export const home = $state({
@@ -7,8 +8,14 @@ export const home = $state({
 	/** Level shown on the map (mirrored from the map view). */
 	level: 0,
 	/** True while every level is stacked at its depth. */
-	overview: false
+	overview: false,
+	/** Alerts card filter: one kind, or null for all of them. */
+	alertFilter: null as AlertKind | null
 });
+
+/** The map lens for the open section (the alerts card narrows by its filter). */
+export const lensFor = (section: string, filter: AlertKind | null): MapLens | null =>
+	section === 'alerts' && filter ? `alerts-${filter}` : (SECTION_LENS[section] ?? null);
 
 /** Sidebar sections that repaint the map while they are open. */
 export const SECTION_LENS: Record<string, MapLens> = {

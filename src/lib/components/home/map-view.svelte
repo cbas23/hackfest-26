@@ -9,14 +9,20 @@
 	import type { Floor } from '#lib/hollow/world.js';
 	import { hollow } from './hollow.js';
 	import { sicknessOf } from '#lib/hollow/sickness.js';
-	import { alertsOn, alertTotals, type HollowAlert } from '#lib/hollow/alerts.js';
+	import {
+		ALERT_INFO,
+		ALERT_KINDS,
+		alertsOn,
+		alertTotals,
+		type AlertKind,
+		type HollowAlert
+	} from '#lib/hollow/alerts.js';
 	import { Tween } from 'svelte/motion';
 	import { cubicOut } from 'svelte/easing';
-	import ZapOffIcon from '@lucide/svelte/icons/zap-off';
-	import WindIcon from '@lucide/svelte/icons/wind';
+	import AlertIcon from './alert-icon.svelte';
 	import SirenIcon from '@lucide/svelte/icons/siren';
 	import SicknessScale from './sickness-scale.svelte';
-	import { home, registerMapNav, SECTION_LENS } from './home-state.svelte.js';
+	import { home, lensFor, registerMapNav } from './home-state.svelte.js';
 	import { cn } from '#lib/utils.js';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import * as ButtonGroup from '#lib/components/ui/button-group/index.js';
@@ -220,9 +226,11 @@
 				};
 			});
 		}
-		const alertPins: PinSpec[] =
-			lens === 'alerts'
-				? alertsOn(floor).alerts.map((a) => ({
+		const floorAlerts = alertMode ? alertsOn(floor) : null;
+		const alertPins: PinSpec[] = floorAlerts
+			? floorAlerts.alerts
+					.filter((a) => !home.alertFilter || a.kind === home.alertFilter)
+					.map((a) => ({
 						key: `alert-${a.id}`,
 						x: a.x,
 						y: a.y,
@@ -233,9 +241,9 @@
 						color: STATUS_INFO[a.severity].color,
 						alert: a
 					}))
-				: [];
+			: [];
 		return placesFor(floor)
-			.filter((p) => p.kind !== 'block' && !(lens === 'alerts' && p.kind === 'air'))
+			.filter((p) => p.kind !== 'block' && !floorAlerts?.sources.has(p.room.id))
 			.map((p): PinSpec => ({
 				key: p.key,
 				x: p.room.x + p.room.w / 2,
@@ -277,7 +285,8 @@
 	});
 
 	// ── Data lens (driven by the open sidebar section) ──────────────────────
-	const lens = $derived(SECTION_LENS[home.section] ?? null);
+	const lens = $derived(lensFor(home.section, home.alertFilter));
+	const alertMode = $derived(!!lens?.startsWith('alerts'));
 	$effect(() => scene?.setLens(lens));
 	/** Sick share across the shown level (or every level in the stacked view). */
 	const sickTotals = $derived.by(() => {
@@ -295,34 +304,47 @@
 	});
 	// ── Alerts lens ─────────────────────────────────────────────────────────
 	const alertList = $derived.by(() => {
-		if (lens !== 'alerts') return null;
+		if (!alertMode) return null;
 		const floors = overview ? LEVELS.map((l) => hollow.floor(l.index)) : [floor];
 		return floors.flatMap((f) => alertsOn(f).alerts);
 	});
-	const totals = $derived(alertList ? alertTotals(alertList) : null);
+	/** Totals over every kind (the tiles), and over the filtered kind (headline, bar). */
+	const allTotals = $derived(alertList ? alertTotals(alertList) : null);
+	const shownList = $derived(
+		alertList?.filter((a) => !home.alertFilter || a.kind === home.alertFilter) ?? null
+	);
+	const totals = $derived(shownList ? alertTotals(shownList) : null);
+	const toggleFilter = (k: AlertKind) => (home.alertFilter = home.alertFilter === k ? null : k);
+	const TILE_LABEL: Record<AlertKind, string> = {
+		blackout: 'In the dark',
+		air: 'Bad air',
+		water: 'Unsafe water'
+	};
 	const SEVERITIES: Status[] = ['critical', 'high', 'warning'];
 	const bySeverity = $derived(
-		SEVERITIES.map((s) => ({ s, n: alertList?.filter((a) => a.severity === s).length ?? 0 }))
+		SEVERITIES.map((s) => ({ s, n: shownList?.filter((a) => a.severity === s).length ?? 0 }))
 	);
 	const tweenOpts = { duration: 900, easing: cubicOut };
 	const countT = new Tween(0, tweenOpts);
-	const darkT = new Tween(0, tweenOpts);
-	const airT = new Tween(0, tweenOpts);
+	const kindT: Record<AlertKind, Tween<number>> = {
+		blackout: new Tween(0, tweenOpts),
+		air: new Tween(0, tweenOpts),
+		water: new Tween(0, tweenOpts)
+	};
 	$effect(() => {
 		countT.set(totals?.count ?? 0);
-		darkT.set(totals?.blackoutResidents ?? 0);
-		airT.set(totals?.airResidents ?? 0);
+		for (const k of ALERT_KINDS) kindT[k].set(allTotals?.residents[k] ?? 0);
 	});
 	const compact = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
 	// The worst blocks on the shown level throb in the 3D map.
 	$effect(() => {
-		if (lens !== 'alerts' || overview) {
+		if (!alertMode || overview) {
 			scene?.setAlertPulse([]);
 			return;
 		}
 		const rooms: { room: Room; color: string }[] = [];
 		for (const a of alertsOn(floor).alerts) {
-			if (a.severity !== 'critical') continue;
+			if (a.severity !== 'critical' || (home.alertFilter && a.kind !== home.alertFilter)) continue;
 			const color =
 				a.kind === 'blackout' ? STATUS_INFO.critical.color : STATUS_INFO[a.severity].color;
 			for (const id of a.blocks) rooms.push({ room: floor.map.rooms[id], color });
@@ -491,7 +513,14 @@
 						aria-label="{a.title}: {a.where}"
 					>
 						<span class="relative grid size-8 place-items-center">
-							{#if a.severity !== 'warning'}
+							{#if a.kind === 'water' && a.severity !== 'warning'}
+								{#each [0, 0.7, 1.4] as delay (delay)}
+									<span
+										class="alert-ripple absolute inset-0 rounded-full border"
+										style="border-color:{ALERT_INFO.water.color};animation-delay:{delay}s"
+									></span>
+								{/each}
+							{:else if a.severity !== 'warning'}
 								<span
 									class="alert-ring absolute inset-0 rounded-full border-2"
 									style="border-color:{p.color}"
@@ -505,9 +534,7 @@
 								class="relative grid size-7 place-items-center rounded-full border-2 border-background text-white shadow-lg"
 								style="background:{p.color};box-shadow:0 0 14px {p.color}"
 							>
-								{#if a.kind === 'blackout'}<ZapOffIcon class="size-3.5" />{:else}<WindIcon
-										class="size-3.5"
-									/>{/if}
+								<AlertIcon kind={a.kind} />
 							</span>
 						</span>
 						{#if showNames}
@@ -607,25 +634,38 @@
 					{/if}
 				{/each}
 			</div>
-			<div class="grid grid-cols-2 gap-2">
-				<div class="flex flex-col gap-0.5 rounded-md border bg-card/60 p-2">
-					<span class="flex items-center gap-1 text-muted-foreground"
-						><ZapOffIcon class="size-3" aria-hidden="true" /> In the dark</span
+			<div class="grid grid-cols-3 gap-1.5" role="group" aria-label="Filter alerts">
+				{#each ALERT_KINDS as k (k)}
+					{@const on = home.alertFilter === k}
+					{@const dim = home.alertFilter && !on}
+					<button
+						type="button"
+						aria-pressed={on}
+						onclick={() => toggleFilter(k)}
+						class={cn(
+							'flex flex-col gap-0.5 rounded-md border bg-card/60 p-1.5 text-left transition-all outline-none hover:-translate-y-px focus-visible:ring-2 focus-visible:ring-ring',
+							dim && 'opacity-45'
+						)}
+						style="border-color:{on ? ALERT_INFO[k].color : 'var(--border)'};{on
+							? `box-shadow:0 0 14px -4px ${ALERT_INFO[k].color}`
+							: ''}"
 					>
-					<span class="text-base font-semibold text-foreground tabular-nums"
-						>{compact.format(darkT.current)}</span
-					>
-				</div>
-				<div class="flex flex-col gap-0.5 rounded-md border bg-card/60 p-2">
-					<span class="flex items-center gap-1 text-muted-foreground"
-						><WindIcon class="size-3" aria-hidden="true" /> Bad air</span
-					>
-					<span class="text-base font-semibold text-foreground tabular-nums"
-						>{compact.format(airT.current)}</span
-					>
-				</div>
+						<span class="flex items-center gap-1 text-[10px] text-muted-foreground">
+							<span style="color:{ALERT_INFO[k].color}"><AlertIcon kind={k} class="size-3" /></span>
+							{TILE_LABEL[k]}
+						</span>
+						<span class="text-sm font-semibold text-foreground tabular-nums"
+							>{compact.format(kindT[k].current)}</span
+						>
+						<span class="text-[10px] text-muted-foreground tabular-nums"
+							>{allTotals?.counts[k] ?? 0} alerts</span
+						>
+					</button>
+				{/each}
 			</div>
-			<p class="text-[10px] text-muted-foreground">Residents affected · simulated</p>
+			<p class="text-[10px] text-muted-foreground">
+				Residents affected · tap a tile to filter · simulated
+			</p>
 		</div>
 	{/if}
 
