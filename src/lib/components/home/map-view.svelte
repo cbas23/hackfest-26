@@ -236,7 +236,7 @@
 				: [];
 		return placesFor(floor)
 			.filter((p) => p.kind !== 'block' && !(lens === 'alerts' && p.kind === 'air'))
-			.map((p) => ({
+			.map((p): PinSpec => ({
 				key: p.key,
 				x: p.room.x + p.room.w / 2,
 				y: p.room.y + p.room.h / 2,
