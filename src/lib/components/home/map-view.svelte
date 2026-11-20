@@ -7,7 +7,7 @@
 	import RouteIcon from '@lucide/svelte/icons/route';
 	import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
 	import EscapeHud from './escape-hud.svelte';
-	import { formatCount, formatDepth, formatPercent } from '#lib/hollow/format.js';
+	import { formatDepth, formatPercent } from '#lib/hollow/format.js';
 	import {
 		placeCentre,
 		placeColor,
@@ -579,11 +579,6 @@
 			<h1 class="truncate text-sm font-semibold">
 				{overview ? 'All levels' : `${level.code} ${level.name}`}
 			</h1>
-			<p class="text-[11px] text-muted-foreground">
-				{overview
-					? `${LEVELS.length} levels, stacked at depth`
-					: `${formatDepth(level.depth)} below the surface`} · all data fictional
-			</p>
 		</div>
 		<ToggleGroup.Root
 			type="single"
@@ -857,7 +852,7 @@
 					<span class="font-semibold text-foreground tabular-nums"
 						>{formatPercent(sickTotals!.share)}</span
 					>
-					of {formatCount(sickTotals!.reported)} reported residents sick
+					sick
 				</p>
 			{/snippet}
 			{@render lensPanel('Lung sickness', sickBody)}
@@ -870,7 +865,7 @@
 					<span class="font-semibold text-foreground tabular-nums"
 						>{formatPercent(pointNow!.share)}</span
 					>
-					of {formatCount(pointNow!.residents)} residents at {steps[3].label.toLowerCase()} or {steps[4].label.toLowerCase()}
+					{steps[3].label.toLowerCase()} or {steps[4].label.toLowerCase()}
 				</p>
 			{/snippet}
 			{@render lensPanel(info.label, pointBody)}

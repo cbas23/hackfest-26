@@ -27,7 +27,6 @@
 	interface Layer {
 		id: LayerId;
 		title: string;
-		summary: string;
 		icon: Component<{ class?: string }>;
 		/** The layer's key colour. */
 		color: string;
@@ -40,7 +39,6 @@
 		{
 			id: 'power',
 			title: 'Power',
-			summary: 'Grid supply by block',
 			icon: ZapIcon,
 			color: POINT_INFO.power.color,
 			content: powerInfo
@@ -48,7 +46,6 @@
 		{
 			id: 'water',
 			title: 'Water',
-			summary: 'Tap-water quality by block',
 			icon: DropletsIcon,
 			color: POINT_INFO.water.color,
 			content: waterInfo
@@ -56,7 +53,6 @@
 		{
 			id: 'air',
 			title: 'Air',
-			summary: 'Air quality by block',
 			icon: FanIcon,
 			color: POINT_INFO.air.color,
 			content: airInfo
@@ -64,7 +60,6 @@
 		{
 			id: 'sickness',
 			title: 'Lung sickness',
-			summary: 'Reported cases by block',
 			icon: WindIcon,
 			// The top of the sickness scale.
 			color: SICK_STEPS[SICK_STEPS.length - 1].color,
@@ -73,7 +68,6 @@
 		{
 			id: 'tunnels',
 			title: 'Tunnels',
-			summary: 'The network and blocked passages',
 			icon: WaypointsIcon,
 			color: 'var(--map-tunnels-icon)',
 			content: tunnelsInfo
@@ -173,12 +167,7 @@
 							>
 								<layer.icon class="size-4" />
 							</span>
-							<span class="flex min-w-0 flex-col">
-								<span class="truncate">{layer.title}</span>
-								<span class="truncate text-xs font-normal text-muted-foreground">
-									{open ? 'Shown on the map' : layer.summary}
-								</span>
-							</span>
+							<span class="truncate">{layer.title}</span>
 						</span>
 					</Accordion.Trigger>
 					<Accordion.Content
