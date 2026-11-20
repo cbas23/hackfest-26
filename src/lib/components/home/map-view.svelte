@@ -1,12 +1,21 @@
 <script lang="ts">
-	import { onMount, type Snippet } from 'svelte';
+	import { onMount, untrack, type Snippet } from 'svelte';
 	import type { Room } from '#lib/tunnels/generate.js';
 	import { LEVELS, SHAFTS, SHAFT_COLORS } from '#lib/hollow/data.js';
-	import { routeOverlay } from '#lib/hollow/scene/route.js';
+	import { routeOverlay, type RouteDraw } from '#lib/hollow/scene/route.js';
 	import { directions } from './directions.svelte.js';
 	import RouteIcon from '@lucide/svelte/icons/route';
+	import SirenIcon from '@lucide/svelte/icons/siren';
+	import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
+	import EscapeHud from './escape-hud.svelte';
 	import { formatCount, formatDepth, formatPercent } from '#lib/hollow/format.js';
-	import { placeCentre, placeColor, type Place, type PlaceKind } from '#lib/hollow/nav.js';
+	import {
+		placeCentre,
+		placeColor,
+		type Place,
+		type PlaceKind,
+		type Route
+	} from '#lib/hollow/nav.js';
 	import { createHollowMap, type HollowMap, type Pick } from '#lib/hollow/hollowMap.js';
 	import {
 		blockedTotals,
@@ -207,26 +216,107 @@
 		scene?.fitBounds(Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys));
 	}
 
-	// Push the whole route into the scene; it shows the legs for whatever is on screen.
+	// ── Escape playback: the route draws itself leg by leg, the camera following it ──
+	/** While an escape plays: the leg being drawn and how many of its tiles are drawn. */
+	let reveal = $state<{ leg: number; tiles: number } | null>(null);
+	/** True once the escape route has reached the safe block (until it replays or ends). */
+	let arrived = $state(false);
+	/** What the playback is doing, for the escape card. */
+	let playStatus = $state<string | null>(null);
+	/** Bumped to cancel a running playback. */
+	let playback = 0;
+
+	const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+	const nextFrame = () => new Promise<number>((r) => requestAnimationFrame(r));
+
+	async function playEscape(r: Route) {
+		const run = ++playback;
+		const stale = () => run !== playback;
+		arrived = false;
+		select(null);
+		for (let i = 0; i < r.legs.length; i++) {
+			const leg = r.legs[i];
+			playStatus = i === 0 ? 'Leaving home…' : `Arriving on ${LEVELS[leg.floor].code}…`;
+			reveal = { leg: i, tiles: 1 };
+			showRoute(leg.floor);
+			// Let the camera settle on the leg before drawing it.
+			await wait(i === 0 ? 700 : 1000);
+			if (stale()) return;
+			playStatus = 'Following the tunnels…';
+			const ms = Math.min(3200, Math.max(1400, leg.path.length * 22));
+			const t0 = performance.now();
+			let drawnAt = 0;
+			for (;;) {
+				const now = await nextFrame();
+				if (stale()) return;
+				const k = Math.min(1, (now - t0) / ms);
+				const tiles = Math.max(1, Math.ceil((1 - (1 - k) ** 2) * leg.path.length));
+				// Redrawing the route is not free: at most every 40 ms, plus the last tile.
+				if (k >= 1 || now - drawnAt > 40) {
+					drawnAt = now;
+					reveal = { leg: i, tiles };
+				}
+				if (k >= 1) break;
+			}
+			const ride = r.rides[i];
+			if (ride) {
+				const to = LEVELS[ride.to];
+				playStatus = `${ride.to > ride.from ? '▼' : '▲'} ${SHAFTS[ride.shaft].name} to ${to.code} ${to.name}`;
+				await wait(900);
+				if (stale()) return;
+			}
+		}
+		reveal = null;
+		playStatus = null;
+		arrived = true;
+	}
+
+	function stopEscape() {
+		playback++;
+		reveal = null;
+		playStatus = null;
+		arrived = false;
+	}
+
+	// Play each new escape; anything else (editing the route, closing it) stops the playback.
+	$effect(() => {
+		const run = directions.escapeRun;
+		const on = directions.escaping;
+		untrack(() => {
+			if (on && run && route) playEscape(route);
+			else stopEscape();
+		});
+	});
+
+	/** The route as drawn: whole, or only as far as the escape playback has got. */
+	const drawn = $derived.by<RouteDraw | null>(() => {
+		if (!route) return null;
+		const legs = route.legs.map((l) => ({ level: l.floor, path: l.path }));
+		const rides = route.rides.map((r) => {
+			const g = hollow.floor(r.from).shaftGates[r.shaft];
+			return { x: g.x + g.w / 2, y: g.y + g.h / 2, from: r.from, to: r.to };
+		});
+		if (!reveal) return { legs, rides };
+		const { leg, tiles } = reveal;
+		const current = legs[leg];
+		return {
+			legs: [
+				...legs.slice(0, leg),
+				...(tiles > 1 ? [{ ...current, path: current.path.slice(0, tiles) }] : [])
+			],
+			rides: rides.slice(0, leg)
+		};
+	});
+	// Push the route into the scene; it shows the legs for whatever is on screen.
 	$effect(() => {
 		if (!scene) return;
-		routeOverlay(scene).set(
-			route
-				? {
-						legs: route.legs.map((l) => ({ level: l.floor, path: l.path })),
-						rides: route.rides.map((r) => {
-							const g = hollow.floor(r.from).shaftGates[r.shaft];
-							return { x: g.x + g.w / 2, y: g.y + g.h / 2, from: r.from, to: r.to };
-						})
-					}
-				: null
-		);
+		routeOverlay(scene).set(drawn);
 		// Directions mode: blue tunnels as soon as the planner opens, not only once there is a
 		// route (the overlay above only tints them while it draws one).
 		scene.hooks.setTunnelDim(directions.open || !!route);
 	});
 
-	// When a new route appears, frame its first leg.
+	// When a new route appears, frame its first leg (an escape frames itself as it plays).
 	let framed = '';
 	$effect(() => {
 		if (!route) {
@@ -236,7 +326,7 @@
 		const key = `${route.from.key}>${route.to.key}>${route.rides.map((r) => r.shaft).join()}`;
 		if (key === framed) return;
 		framed = key;
-		showRoute(route.from.floor);
+		if (!directions.escaping) showRoute(route.from.floor);
 	});
 
 	/** Start and destination pins, and a "ride the shaft" chip where each leg ends. */
@@ -258,10 +348,26 @@
 				place: p
 			});
 		}
+		// The head of the escape route while it draws.
+		const head = reveal && route ? route.legs[reveal.leg] : null;
+		if (head && head.floor === levelIndex && !overview) {
+			const t = head.path[reveal!.tiles - 1];
+			out.push({
+				key: 'runner',
+				x: t.x + 0.5,
+				y: t.y + 0.5,
+				h: TUNNEL_H + 0.3,
+				level: levelIndex,
+				kind: 'runner',
+				label: 'You',
+				color: 'var(--primary)'
+			});
+		}
 		if (route && !overview)
 			route.legs.forEach((leg, i) => {
 				const ride = route.rides[i];
-				if (leg.floor !== levelIndex || !ride) return;
+				// While an escape draws, a ride's chip waits until its leg is done.
+				if (leg.floor !== levelIndex || !ride || (reveal && i >= reveal.leg)) return;
 				const gate = floor.shaftGates[ride.shaft];
 				out.push({
 					key: `ride-${i}`,
@@ -284,7 +390,7 @@
 		x: number;
 		y: number;
 		h: number;
-		kind: PlaceKind | 'level' | 'home' | 'blocked' | 'from' | 'to' | 'ride';
+		kind: PlaceKind | 'level' | 'home' | 'blocked' | 'from' | 'to' | 'ride' | 'runner';
 		level: number;
 		label: string;
 		color: string;
@@ -580,6 +686,40 @@
 								>
 							{/if}
 						</button>
+					{:else if p.kind === 'to' && directions.escaping}
+						<!-- The escape's safe block: a pulsing green beacon. -->
+						<span
+							class="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center"
+							role="img"
+							aria-label="Safe block: {p.label}"
+						>
+							<span class="relative grid size-8 place-items-center">
+								<span
+									class="absolute inset-0 animate-ping rounded-full bg-emerald-400/70"
+									aria-hidden="true"
+								></span>
+								<span
+									class="relative grid size-6 place-items-center rounded-full border-2 border-background bg-emerald-500 text-white shadow-[0_0_16px_var(--color-emerald-400)]"
+								>
+									<ShieldCheckIcon class="size-3.5" />
+								</span>
+							</span>
+							<span
+								class="mt-0.5 rounded-full bg-emerald-500 px-2 py-px text-[10px] font-bold tracking-wider text-white uppercase shadow-lg"
+								>Safe</span
+							>
+						</span>
+					{:else if p.kind === 'runner'}
+						<span
+							class="absolute grid size-5 -translate-x-1/2 -translate-y-1/2 place-items-center"
+							role="img"
+							aria-label="You"
+						>
+							<span class="absolute inset-0 animate-ping rounded-full bg-primary/60"></span>
+							<span
+								class="relative size-3 rounded-full border-2 border-background bg-primary shadow-[0_0_12px_var(--primary)]"
+							></span>
+						</span>
 					{:else if p.kind === 'to'}
 						<svg
 							viewBox="0 0 24 34"
@@ -652,6 +792,41 @@
 				</div>
 			{/each}
 		</div>
+
+		<!-- Alarm glow while the home is in danger; a green flash on reaching safety. -->
+		{#if arrived}
+			<div class="safe-flash pointer-events-none absolute inset-0 z-[5]" aria-hidden="true"></div>
+		{:else if directions.danger.length}
+			<div
+				class={cn(
+					'alarm pointer-events-none absolute inset-0 z-[5]',
+					directions.escaping && 'opacity-50'
+				)}
+				aria-hidden="true"
+			></div>
+		{/if}
+
+		{#if directions.escaping}
+			<EscapeHud
+				class="absolute top-4 left-1/2 z-30 -translate-x-1/2"
+				status={playStatus}
+				{arrived}
+			/>
+		{:else if directions.danger.length && !home.pickingHome && !directions.picking}
+			<button
+				class="get-out absolute bottom-6 left-1/2 z-30 flex -translate-x-1/2 items-center gap-3 rounded-full border-2 border-white/30 bg-destructive py-2.5 pr-6 pl-3 text-white shadow-2xl transition-transform outline-none hover:scale-105 focus-visible:ring-2 focus-visible:ring-ring active:scale-95"
+				onclick={() => directions.escape()}
+			>
+				<span class="relative grid size-9 place-items-center rounded-full bg-white/20">
+					<span class="absolute inset-0 animate-ping rounded-full bg-white/30"></span>
+					<SirenIcon class="relative size-5" />
+				</span>
+				<span class="flex flex-col text-left leading-tight">
+					<span class="text-base font-extrabold tracking-wider uppercase">Get to safety</span>
+					<span class="text-xs opacity-90">{directions.danger[0].title}</span>
+				</span>
+			</button>
+		{/if}
 
 		{#if directions.picking}
 			<div
@@ -818,3 +993,52 @@
 		{/if}
 	</section>
 </div>
+
+<style>
+	/* A red glow breathing in from the map's edges while the home is in danger. */
+	.alarm {
+		box-shadow: inset 0 0 90px 10px color-mix(in oklch, var(--destructive) 55%, transparent);
+		animation: alarm 1.6s ease-in-out infinite;
+	}
+	@keyframes alarm {
+		50% {
+			box-shadow: inset 0 0 40px 0 color-mix(in oklch, var(--destructive) 20%, transparent);
+		}
+	}
+	/* One green flash when the escape route reaches the safe block. */
+	.safe-flash {
+		animation: safe-flash 2.6s ease-out both;
+	}
+	@keyframes safe-flash {
+		0% {
+			box-shadow: inset 0 0 0 0 transparent;
+		}
+		15% {
+			box-shadow: inset 0 0 120px 20px
+				color-mix(in oklch, var(--color-emerald-400) 60%, transparent);
+		}
+		100% {
+			box-shadow: inset 0 0 0 0 transparent;
+		}
+	}
+	/* The "Get to safety" button throbs to draw the eye. */
+	.get-out {
+		animation: get-out 1.6s ease-in-out infinite;
+	}
+	@keyframes get-out {
+		0%,
+		100% {
+			box-shadow: 0 0 0 0 color-mix(in oklch, var(--destructive) 70%, transparent);
+		}
+		50% {
+			box-shadow: 0 0 0 14px transparent;
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.alarm,
+		.get-out,
+		.safe-flash {
+			animation: none;
+		}
+	}
+</style>

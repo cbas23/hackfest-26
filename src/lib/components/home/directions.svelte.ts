@@ -1,5 +1,7 @@
 import { LEVELS } from '#lib/hollow/data.js';
 import { findRoute, placesOn, type Place, type PlaceKind, type Route } from '#lib/hollow/nav.js';
+import { homeNotices, type HomeNotice } from '#lib/hollow/notices.js';
+import { escapeRoute } from '#lib/hollow/safety.js';
 import { getHollow, simulateFloor } from '#lib/hollow/simulation.js';
 import { live } from '#lib/live/state.svelte.js';
 import { placeByKey } from './address.js';
@@ -22,6 +24,14 @@ class Directions {
 	/** Directorate permit (ride restricted shafts up) and the unmapped Old Mine Vent. */
 	permit = $state(false);
 	unregistered = $state(false);
+	/** True while the route is an escape to the nearest safe block. */
+	escaping = $state(false);
+	/** Bumped on every escape, so the map replays the route's reveal. */
+	escapeRun = $state(0);
+	/** Blocked tunnels the escape steered around. */
+	escapeAvoided = $state(0);
+	/** Set when no safe block could be reached. */
+	escapeFailed = $state(false);
 
 	fromPlace = $derived(placeByKey(this.from));
 	toPlace = $derived(placeByKey(this.to));
@@ -40,9 +50,39 @@ class Directions {
 			blocked: (f) => simulateFloor(hollow.floor(f)).blocked
 		});
 	});
+	/** The home's high and critical notices: the reasons to get out. */
+	danger = $derived.by<HomeNotice[]>(() => {
+		void live.version;
+		const h = this.homePlace;
+		if (!h) return [];
+		return homeNotices(simulateFloor(getHollow().floor(h.floor)), h).filter(
+			(n) => n.severity === 'high' || n.severity === 'critical'
+		);
+	});
+
+	/** Route from the saved home to the nearest safe block, around blocked tunnels. */
+	escape() {
+		const h = this.homePlace;
+		if (!h) return;
+		home.pickingHome = false;
+		home.panelOpen = false;
+		const found = escapeRoute(h);
+		this.escapeFailed = !found;
+		if (!found) return;
+		this.open = true;
+		this.picking = null;
+		this.permit = false;
+		this.unregistered = false;
+		this.from = h.key;
+		this.to = found.route.to.key;
+		this.escapeAvoided = found.blockedTunnels;
+		this.escaping = true;
+		this.escapeRun++;
+	}
 
 	/** Open the card, starting from the saved home when there is one. */
 	start() {
+		this.escaping = false;
 		this.open = true;
 		home.pickingHome = false;
 		if (!this.from && home.address) this.from = home.address;
@@ -51,6 +91,7 @@ class Directions {
 
 	/** Set one end, then ask for whichever end is still missing. */
 	set(end: End, place: Place) {
+		this.escaping = false;
 		this.open = true;
 		this[end] = place.key;
 		this.picking = !this.from ? 'from' : !this.to ? 'to' : null;
@@ -63,10 +104,13 @@ class Directions {
 	}
 
 	swap() {
+		this.escaping = false;
 		[this.from, this.to] = [this.to, this.from];
 	}
 
 	close() {
+		this.escaping = false;
+		this.escapeFailed = false;
 		this.open = false;
 		this.from = null;
 		this.to = null;

@@ -18,6 +18,7 @@
 	import StepScale from './step-scale.svelte';
 	import TunnelLegend from './tunnel-legend.svelte';
 	import HomeCard from './home-card.svelte';
+	import EscapeButton from './escape-button.svelte';
 	import ReportCard from './report-card.svelte';
 	import SicknessScale from './sickness-scale.svelte';
 	import { home, type LayerId } from './home-state.svelte.js';
@@ -137,6 +138,7 @@
 
 {#snippet panel()}
 	<HomeCard />
+	<EscapeButton />
 
 	<section class="mx-3 mt-4 mb-5">
 		<h2 id="layers-heading" class="mb-2 px-3 text-xs font-medium text-muted-foreground">
