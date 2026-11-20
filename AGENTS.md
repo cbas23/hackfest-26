@@ -113,8 +113,8 @@ AI: `#lib/server/ai.ts` (server only) gives `aiModel()`, an AI SDK (`ai`) model 
 defaulting to DeepSeek V4.1 Flash. The key is `OPENROUTER_API_KEY` in `.env.local`.
 The report agent (`#lib/server/reportAgent.ts`, behind `POST /api/report`; shapes in
 `#lib/hollow/report.ts`) uses it: a resident's report plus their home block goes in with the
-current Convex state, and the agent edits the state with tools (add/update/remove points,
-block/reopen tunnels), checking the home's readings after each write. The sidebar's Report card
+current Convex state, and the agent edits the state with tools (add/update/remove points, including lung-sickness outbreaks,
+block/reopen tunnels) on any level: the report can be about the home or a place it names elsewhere (`findPlaces`, `listLevel`, `readPlace`), and each write returns the readings at the home and the last place read. The sidebar's Report card
 (`report-card.svelte`, `report.svelte.ts`) sends reports and shows a short status line under
 its button (reviewing, received, or the error).
 

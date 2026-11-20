@@ -3,9 +3,11 @@
  * shared state in Convex to match. "There's bad air in my house" adds bad air at their block;
  * "the power is back" weakens or removes the fault that reaches it. Everything is fictional.
  *
- * It sees the home block, its readings (power, water, air, sickness) and what is nearby, and has
- * tools to add, change and remove points (outbreaks too) and to block or reopen tunnels. Every write tool
- * answers with the home's readings after the change, so the agent can check its work.
+ * It sees the home block, its readings (power, water, air, sickness), what is nearby and a summary
+ * of every level. Reports can be about any level: it can look up places, list a level's points and
+ * blocked tunnels and read any place's readings, and has tools to add, change and remove points
+ * (outbreaks too) and to block or reopen tunnels anywhere. Every write tool answers with the
+ * readings at the home (and at the last place it read) after the change, so it can check its work.
  * Server only (it holds the AI key and writes to Convex).
  */
 import { generateText, stepCountIs, tool } from 'ai';
@@ -19,7 +21,7 @@ import { LEVELS } from '#lib/hollow/data.js';
 import { placeCentre, placesOn, TILE_M, type Place } from '#lib/hollow/nav.js';
 import type { ReportChange, ReportResult } from '#lib/hollow/report.js';
 import { nearestRoad, tunnelRun } from '#lib/hollow/scenario.js';
-import { sicknessOn } from '#lib/hollow/sickness.js';
+import { SICK_STEPS, sickStep, sicknessOn } from '#lib/hollow/sickness.js';
 import { getHollow } from '#lib/hollow/simulation.js';
 import {
 	BLOCKED_TILES,
@@ -35,7 +37,10 @@ import { aiModel } from './ai.js';
 
 /** How far around the home (tiles, straight line) the agent is shown points and blocked tunnels. */
 const NEARBY_TILES = 50;
-const MAX_STEPS = 10;
+/** Most points / blocked tunnels `listLevel` returns. */
+const LIST_POINTS = 25;
+const LIST_TUNNELS = 12;
+const MAX_STEPS = 14;
 
 const round = (v: number, digits = 2) => Math.round(v * 10 ** digits) / 10 ** digits;
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -73,11 +78,36 @@ async function fetchState(client: ConvexHttpClient): Promise<HollowState> {
 	};
 }
 
-/** What the home block reads now, and which points reach it. */
-function homeReadings(state: HollowState, home: Place) {
-	const floor = getHollow().floor(home.floor);
+const dist = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+	Math.round(Math.hypot(a.x - b.x, a.y - b.y));
+
+/**
+ * The housing block whose readings stand for a place: itself if people live there, otherwise
+ * the nearest block on its level (farms, plants, facilities and shafts have no readings).
+ */
+function housingFor(place: Place): Place {
+	const floor = getHollow().floor(place.floor);
+	if (floor.residents[place.room.id] > 0) return place;
+	const c = placeCentre(place);
+	let best = place;
+	let bestD = Infinity;
+	for (const p of placesOn(floor)) {
+		if (!(floor.residents[p.room.id] > 0)) continue;
+		const d = dist(placeCentre(p), c);
+		if (d < bestD) [best, bestD] = [p, d];
+	}
+	return best;
+}
+
+/**
+ * What a place reads now, and which points reach it. Works on any level; for a place nobody
+ * lives in it reads the nearest housing block and says so (`readFrom`).
+ */
+function readingsAt(state: HollowState, at: Place) {
+	const place = housingFor(at);
+	const floor = getHollow().floor(place.floor);
 	const cond = conditionsOn(floor, state.points);
-	const id = home.room.id;
+	const id = place.room.id;
 	const readings = Object.fromEntries(
 		POINT_KINDS.map((kind) => {
 			const score = cond.score[kind][id] ?? 0;
@@ -90,34 +120,101 @@ function homeReadings(state: HollowState, home: Place) {
 	const sickness = sicknessOn(floor, state.points);
 	const sick = sickness.blocks[id];
 	return {
+		...(place !== at
+			? {
+					readFrom: `${place.label}, the nearest housing (${dist(placeCentre(place), placeCentre(at))} tiles away); ${at.label} itself has no readings`
+				}
+			: {}),
 		...readings,
 		lungSickness: sick
-			? { sickShareOfReports: round(sick.score), reported: sick.reported, sick: sick.sick }
+			? {
+					sickShareOfReports: round(sick.score),
+					step: `${SICK_STEPS[sickStep(sick.score)].range} sick`,
+					reported: sick.reported,
+					sick: sick.sick
+				}
 			: null,
-		pointsReachingHome: [...cond.areas, ...sickness.areas]
+		pointsReachingIt: [...cond.areas, ...sickness.areas]
 			.filter((a) => a.blocks.includes(id))
 			.map((a) => a.point.id)
 	};
 }
 
-const dist = (a: { x: number; y: number }, b: { x: number; y: number }) =>
-	Math.round(Math.hypot(a.x - b.x, a.y - b.y));
+type Tile = { x: number; y: number };
+
+const pointView = (p: StatePoint, from: Tile) => ({
+	id: p.id,
+	kind: p.kind,
+	level: p.level,
+	x: p.x,
+	y: p.y,
+	radius: p.radius,
+	strength: p.strength ?? 1,
+	note: p.note,
+	tilesAway: dist(p, from)
+});
+
+const tunnelView = (t: HollowState['blockedTunnels'][number], from: Tile) => ({
+	id: t.id,
+	level: t.level,
+	reason: t.reason,
+	tiles: t.tiles,
+	tilesAway: dist(t.tiles[0], from)
+});
+
+/** The points and blocked tunnels on one level, nearest to `from` first. */
+function levelState(state: HollowState, level: number, from: Tile) {
+	const points = state.points
+		.filter((p) => p.level === level)
+		.map((p) => pointView(p, from))
+		.sort((a, b) => a.tilesAway - b.tilesAway);
+	const tunnels = state.blockedTunnels
+		.filter((t) => t.level === level)
+		.map((t) => tunnelView(t, from))
+		.sort((a, b) => a.tilesAway - b.tilesAway);
+	return {
+		level,
+		levelName: `${LEVELS[level].code} ${LEVELS[level].name}`,
+		points: points.slice(0, LIST_POINTS),
+		blockedTunnels: tunnels.slice(0, LIST_TUNNELS),
+		morePoints: Math.max(0, points.length - LIST_POINTS),
+		moreBlockedTunnels: Math.max(0, tunnels.length - LIST_TUNNELS)
+	};
+}
+
+/** How many points of each kind and blocked tunnels each level has. */
+function levelsSummary(state: HollowState) {
+	return LEVELS.map((l) => {
+		const points: Record<string, number> = {};
+		for (const p of state.points)
+			if (p.level === l.index) points[p.kind] = (points[p.kind] ?? 0) + 1;
+		return {
+			level: l.index,
+			levelName: `${l.code} ${l.name}`,
+			points,
+			blockedTunnels: state.blockedTunnels.filter((t) => t.level === l.index).length
+		};
+	});
+}
+
+/** A place for the agent: where it is and how to point at it. */
+const placeView = (p: Place) => {
+	const c = placeCentre(p);
+	return {
+		key: p.key,
+		label: p.label,
+		what: p.sub,
+		level: p.floor,
+		centreTile: { x: Math.round(c.x), y: Math.round(c.y) },
+		doorTunnelTile: p.room.access
+	};
+};
 
 /** The home, its readings and what is near it on its level: the agent's first look. */
 function context(state: HollowState, home: Place) {
 	const level = LEVELS[home.floor];
 	const floor = getHollow().floor(home.floor);
 	const centre = placeCentre(home);
-	const pointView = (p: StatePoint) => ({
-		id: p.id,
-		kind: p.kind,
-		x: p.x,
-		y: p.y,
-		radius: p.radius,
-		strength: p.strength ?? 1,
-		note: p.note,
-		tilesFromHome: dist(p, centre)
-	});
 	return {
 		home: {
 			label: home.label,
@@ -127,41 +224,39 @@ function context(state: HollowState, home: Place) {
 			doorTunnelTile: home.room.access,
 			size: { w: home.room.w, h: home.room.h }
 		},
-		readingsAtHome: homeReadings(state, home),
-		pointsNearby: state.points
+		readingsAtHome: readingsAt(state, home),
+		pointsNearHome: state.points
 			.filter((p) => p.level === home.floor && dist(p, centre) <= NEARBY_TILES)
-			.map(pointView)
-			.sort((a, b) => a.tilesFromHome - b.tilesFromHome)
+			.map((p) => pointView(p, centre))
+			.sort((a, b) => a.tilesAway - b.tilesAway)
 			.slice(0, 15),
-		blockedTunnelsNearby: state.blockedTunnels
+		blockedTunnelsNearHome: state.blockedTunnels
 			.filter((t) => t.level === home.floor && dist(t.tiles[0], centre) <= NEARBY_TILES)
-			.map((t) => ({
-				id: t.id,
-				reason: t.reason,
-				tiles: t.tiles,
-				tilesFromHome: dist(t.tiles[0], centre)
-			}))
-			.sort((a, b) => a.tilesFromHome - b.tilesFromHome)
+			.map((t) => tunnelView(t, centre))
+			.sort((a, b) => a.tilesAway - b.tilesAway)
 			.slice(0, 8),
-		pointsOnOtherLevels: state.points.filter((p) => p.level !== home.floor).length,
-		levelSize: { width: floor.map.width, height: floor.map.height }
+		homeLevelSize: { width: floor.map.width, height: floor.map.height },
+		allLevels: levelsSummary(state)
 	};
 }
 
-const SYSTEM = `You are the report desk of the Hollow, a fictional underground city with seven levels (0 = L1 The Crown at the top … 6 = L7 The Furnace at the bottom). A resident sends a short report about their home. You keep the city's simulation honest: edit its shared state so it matches what the resident reports, then answer them.
+const SYSTEM = `You are the report desk of the Hollow, a fictional underground city with seven levels (0 = L1 The Crown at the top … 6 = L7 The Furnace at the bottom). A resident sends a short report about their home, or about somewhere else in the city on any level. You keep the city's simulation honest: edit its shared state so it matches what the resident reports, then answer them.
 
 The state you can edit (all simulated):
 - Points: sources that make power, water or air bad, and lung-sickness outbreaks (kind "sickness"). Each has a kind, a level, a tile x/y, a radius (reach in tiles, ${POINT_RADIUS.min}–${POINT_RADIUS.max}; one tile is ${TILE_M} m) and a strength (${POINT_STRENGTH.min}–${POINT_STRENGTH.max}, how bad it is at the centre). Power and water spread along the tunnels (walking distance to a block's door); air and sickness spread over an area (straight-line distance). A point's push fades to half at its radius and to nothing soon after. Roughly, a block right at a point reads its strength as its score.
-- Scores run 0 (good) to 1 (bad) in five steps of 0.2. Power: Stable, Flicker, Brownout, Cuts, Blackout. Water: Clean, Fair, Poor, Unsafe, Toxic. Air: Clean, Fair, Stale, Poor, Hazardous. Lung sickness: the share of the block's health reports that are lung sickness (sickShareOfReports). Each block also has a small level-wide base and noise you can't change.
+- Scores run 0 (good) to 1 (bad) in five steps of 0.2. Power: Stable, Flicker, Brownout, Cuts, Blackout. Water: Clean, Fair, Poor, Unsafe, Toxic. Air: Clean, Fair, Stale, Poor, Hazardous. Lung sickness: the share of the block's health reports that are lung sickness (sickShareOfReports), in five steps of 20% (0–20% … 80–100% sick). Each block also has a small level-wide base and noise you can't change.
 - Blocked tunnels: ${BLOCKED_TILES.min}–${BLOCKED_TILES.max} tile stretches that can't be passed (a collapse, flooding, a checkpoint…).
-- Lung sickness is a resident's health report, not a reading of the air: only add or strengthen an outbreak when the report says several people around them are sick (one person coughing is not an outbreak), and only change the air if they also describe bad air.
+- Lung sickness on the map comes only from outbreaks (kind "sickness" points), and you can change it like the other kinds: add an outbreak, make one stronger or weaker, grow or shrink its reach, move it, or remove it. An outbreak's strength is roughly the sick share at its centre (0.3 ≈ a third of the health reports are lung sickness).
+- Sickness is about people, not the air: change it when the report is about people being sick or getting better ("half my block is coughing", "the clinic on L2 is full of lung cases", "everyone here has recovered"), and only change the air too if they also describe bad air. Size it to what they describe: one coughing neighbour is a small, weak outbreak at most (≈ 0.25, reach 3–5), several sick households a block-sized one (≈ 0.5, reach 5–8), a district-wide wave a large, strong one (≈ 0.8, reach 12+). For recoveries, weaken or remove the outbreaks that reach the place (pointsReachingIt); for a sickness that is spreading, strengthen or widen the nearest outbreak rather than stacking a new one on it.
 
 How to work:
-- Read the report against the home's readings. If something is wrong that the map doesn't show, add a point (or strengthen a nearby one) so the home reads it. Place it at or next to the home (its centre tile for air or sickness, its door tunnel tile for power or water) unless the report says where it comes from; use findPlaces for named places. Pick a strength that lands the home on the step the report describes (e.g. "a bit stale" ≈ 0.45, "can't breathe" ≈ 0.9) and a modest reach (4–12 tiles for one block, more if they say the whole district).
-- If they say something is fixed or fine but the map shows it bad, weaken, shrink or remove the points that reach the home (pointsReachingHome).
+- Work out where the report is about: their home (the default) or a place they name, on any level. For another place, find it with findPlaces, see what is already there with listLevel, and check its readings with readPlace before editing. Pass that level to addPoint and blockTunnel. Never assume a named place is on the home's level.
+- Read the report against the readings of that place. If something is wrong that the map doesn't show, add a point (or strengthen a nearby one) so the place reads it. Place it at or next to that place (its centre tile for air or sickness, its door tunnel tile for power or water) unless the report says where it comes from; use findPlaces for named places. Pick a strength that lands the place on the step the report describes (e.g. "a bit stale" ≈ 0.45, "can't breathe" ≈ 0.9) and a modest reach (4–12 tiles for one block, more if they say the whole district).
+- If they say something is fixed or fine but the map shows it bad, weaken, shrink or remove the points that reach that place (pointsReachingIt).
 - For a tunnel they can't get through, block a short stretch near where they say (default: by their door); if a blocked tunnel near them is open again, reopen it.
-- Check the readings each write tool returns and adjust if the home isn't on the right step. Make the fewest changes that do it (usually one or two), and only on other levels if the report names them.
+- Each write tool returns the readings at the home (homeNow) and at the last place you read with readPlace (placeNow). Check them and adjust if the place isn't on the right step. Make the fewest changes that do it (usually one or two), and only on the levels the report is about.
 - Give every new point a short note for the residents it touches, in plain words (e.g. "Residents report smoke in the vents near Block L3-42").
+- Only make edits that stand for what was reported: never add test or probe points. If a tool returns an error, don't keep retrying it; change nothing more and say so in your reply.
 - If the report is unclear, not about power, water, air, sickness or tunnels, or asks for something you can't do, change nothing.
 
 Finish with a reply to the resident: one to three short sentences in plain, calm civic language, saying what you changed on the map (or why you changed nothing). Stay in the world (underground: no windows, sky or outside). Don't mention ids, tools, scores or tile numbers, and don't answer questions that aren't reports.`;
@@ -172,10 +267,17 @@ export async function handleReport(message: string, home: Place): Promise<Report
 	const client = new ConvexHttpClient(PUBLIC_CONVEX_URL);
 	let state = await fetchState(client);
 	const changes: ReportChange[] = [];
+	/** The last place the agent read with readPlace: write tools report its readings too. */
+	let focus: Place | null = null;
 
 	const refresh = async () => {
 		state = await fetchState(client);
-		return homeReadings(state, home);
+		return {
+			homeNow: readingsAt(state, home),
+			...(focus && focus.key !== home.key
+				? { placeNow: { label: focus.label, level: focus.floor, ...readingsAt(state, focus) } }
+				: {})
+		};
 	};
 	const levelOf = (level: number | undefined) => clamp(Math.round(level ?? home.floor), 0, 6);
 	const tileIn = (level: number, x: number, y: number) => {
@@ -191,7 +293,7 @@ export async function handleReport(message: string, home: Place): Promise<Report
 	const tools = {
 		findPlaces: tool({
 			description:
-				'Find named places (facilities, farms, plants, shaft landings, blocks such as "L3-42") by name. Returns their level and tiles.',
+				'Find named places on any level (facilities, farms, plants, shaft landings, blocks such as "L3-42") by name. Returns their key, level and tiles.',
 			inputSchema: z.object({
 				query: z.string().describe('Part of the name, e.g. "clinic" or "Warrens Air"'),
 				level: z.number().int().min(0).max(6).optional().describe('Only this level')
@@ -203,23 +305,40 @@ export async function handleReport(message: string, home: Place): Promise<Report
 					.flatMap((f) => placesOn(getHollow().floor(f)))
 					.filter((p) => p.label.toLowerCase().includes(q))
 					.slice(0, 8)
-					.map((p) => {
-						const c = placeCentre(p);
-						return {
-							label: p.label,
-							what: p.sub,
-							level: p.floor,
-							centreTile: { x: Math.round(c.x), y: Math.round(c.y) },
-							doorTunnelTile: p.room.access
-						};
-					});
+					.map(placeView);
+			}
+		}),
+
+		listLevel: tool({
+			description:
+				'The points and blocked tunnels on one level (any level), nearest to x/y first (default: the middle of the level).',
+			inputSchema: z.object({
+				level: z.number().int().min(0).max(6),
+				x: z.number().optional().describe('Tile x'),
+				y: z.number().optional().describe('Tile y')
+			}),
+			execute: async ({ level, x, y }) => {
+				const { width, height } = getHollow().floor(level).map;
+				return levelState(state, level, { x: x ?? width / 2, y: y ?? height / 2 });
+			}
+		}),
+
+		readPlace: tool({
+			description:
+				'The readings at a place on any level right now, by its key from findPlaces. Write tools then also report this place.',
+			inputSchema: z.object({ key: z.string().describe('e.g. "4:17"') }),
+			execute: async ({ key }) => {
+				const place = placeByKey(key);
+				if (!place) return { error: `No place ${key}` };
+				focus = place;
+				return { ...placeView(place), readings: readingsAt(state, place) };
 			}
 		}),
 
 		readHome: tool({
 			description: "The home's readings right now (after any changes).",
 			inputSchema: z.object({}),
-			execute: () => refresh()
+			execute: async () => (await refresh()).homeNow
 		}),
 
 		addPoint: tool({
@@ -251,7 +370,7 @@ export async function handleReport(message: string, home: Place): Promise<Report
 					level,
 					text: describe(p.kind, level, radius, strength)
 				});
-				return { id, homeNow: await refresh() };
+				return { id, ...(await refresh()) };
 			}
 		}),
 
@@ -282,7 +401,7 @@ export async function handleReport(message: string, home: Place): Promise<Report
 					level: p.level,
 					text: `Now: ${describe(p.kind, p.level, next.radius ?? p.radius, next.strength ?? p.strength ?? 1)}`
 				});
-				return { ok: true, homeNow: await refresh() };
+				return { ok: true, ...(await refresh()) };
 			}
 		}),
 
@@ -299,7 +418,7 @@ export async function handleReport(message: string, home: Place): Promise<Report
 					level: p.level,
 					text: `${POINT_INFO[p.kind].point} on ${LEVELS[p.level].code} cleared`
 				});
-				return { ok: true, homeNow: await refresh() };
+				return { ok: true, ...(await refresh()) };
 			}
 		}),
 
@@ -330,8 +449,7 @@ export async function handleReport(message: string, home: Place): Promise<Report
 					level,
 					text: `Tunnel blocked on ${LEVELS[level].code}: ${b.reason}`
 				});
-				await refresh();
-				return { ok: true, tiles };
+				return { ok: true, tiles, ...(await refresh()) };
 			}
 		}),
 
@@ -348,8 +466,7 @@ export async function handleReport(message: string, home: Place): Promise<Report
 					level: t.level,
 					text: `Tunnel reopened on ${LEVELS[t.level].code} (was: ${t.reason})`
 				});
-				await refresh();
-				return { ok: true };
+				return { ok: true, ...(await refresh()) };
 			}
 		})
 	};
@@ -366,7 +483,7 @@ export async function handleReport(message: string, home: Place): Promise<Report
 	const reply =
 		result.text.trim() ||
 		(changes.length
-			? 'Thanks for your report. We have updated the map near your home.'
+			? 'Thanks for your report. We have updated the map.'
 			: 'Thanks for your report. We made no change to the map.');
 	return { reply, changes };
 }
