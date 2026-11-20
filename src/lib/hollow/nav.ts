@@ -231,6 +231,19 @@ export function findRoute(
 	to: Place,
 	opts: RouteOptions
 ): Route | null {
+	return routeToNearest(hollow, from, [to], opts);
+}
+
+/**
+ * The quickest route from `from` to whichever of `targets` is closest by travel time, or
+ * null when none can be reached. One search, however many targets.
+ */
+export function routeToNearest(
+	hollow: Hollow,
+	from: Place,
+	targets: Place[],
+	opts: RouteOptions
+): Route | null {
 	const floors = LEVELS.map((_, i) => hollow.floor(i));
 	const blocked = floors.map((fl) => opts.blocked?.(fl.index));
 	const isRoad = (f: number, x: number, y: number) =>
@@ -243,7 +256,9 @@ export function findRoute(
 		});
 
 	const startKey = tileKey(from.floor, from.room.access.x, from.room.access.y);
-	const goalKey = tileKey(to.floor, to.room.access.x, to.room.access.y);
+	const goals = new Map(
+		targets.map((t) => [tileKey(t.floor, t.room.access.x, t.room.access.y), t])
+	);
 	const startDir = Math.max(0, dirIndex(from.room.door, from.room.access));
 
 	// Dijkstra over (tile, heading) so turns cost a little and paths stay straight.
@@ -260,7 +275,7 @@ export function findRoute(
 		if (d > (dist.get(state) ?? Infinity)) continue;
 		const key = state >> 2;
 		const dir = state & 3;
-		if (key === goalKey) {
+		if (goals.has(key)) {
 			goal = state;
 			break;
 		}
@@ -291,6 +306,7 @@ export function findRoute(
 		}
 	}
 	if (goal < 0) return null;
+	const to = goals.get(goal >> 2)!;
 
 	// Rebuild the tile path, one leg per floor visited.
 	const states: number[] = [];
