@@ -134,7 +134,7 @@
 	/* Under a data lens: the receding chambers and the flat tunnel trace. */
 	--map-muted-wall: var(--border);
 	--map-muted-roof: var(--secondary);
-	--map-lens-tunnel: color-mix(in oklch, var(--background) 80%, black);
+	--map-lens-tunnel: var(--background);
 	/* Sickness lens, low → high. */
 	--map-sick-1: color-mix(in oklch, var(--primary) 6%, var(--border));
 	--map-sick-2: color-mix(in oklch, var(--primary) 35%, var(--border));

@@ -16,14 +16,17 @@ export type MapLens = 'sickness' | 'tunnels' | PointKind;
 const fiveSteps = (name: 'sick' | PointKind) =>
 	([1, 2, 3, 4, 5] as const).map((i) => token(`map-${name}-${i}`));
 
-/** Tunnels under a data lens: a flat, very dark trace just above the floor. */
+/**
+ * Tunnels under a data lens: the same full-height network as the tunnels lens, in the
+ * background colour (only the walls shade a little darker), so it blends in behind the blocks.
+ */
 const lensTunnel = () => {
 	const top = token('map-lens-tunnel');
 	return {
 		top,
 		wall: top.clone().multiplyScalar(0.85),
-		underside: top.clone().multiplyScalar(0.6),
-		height: 0.06
+		underside: top.clone().multiplyScalar(0.5),
+		height: TUNNEL_H
 	};
 };
 
@@ -204,8 +207,8 @@ export function floorStyle(floor: Floor, lens: MapLens | null = null): LayerStyl
 	return {
 		seed: floor.index * 1_000_003,
 		// A data lens is read off the rooms alone: they go fully opaque with flat colours (no
-		// per-block brightness jitter skewing the scale), and the tunnels flatten into a
-		// near-black trace on the floor, too low to ever cover a room or its highlight.
+		// per-block brightness jitter skewing the scale), and the tunnels keep their full
+		// height in the background colour, lower than every room.
 		// The tunnels lens does the opposite: the network stands at full height, a shade
 		// darker than usual, with its blocked sections painted red, and every chamber sinks
 		// below it, flat and almost see-through.
