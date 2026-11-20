@@ -4,6 +4,8 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+	// Lets `cloudflared tunnel --url` share the dev server with people outside the network.
+	server: { allowedHosts: ['.trycloudflare.com'] },
 	plugins: [
 		tailwindcss(),
 		sveltekit({
