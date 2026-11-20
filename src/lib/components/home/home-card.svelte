@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Input } from '#lib/components/ui/input/index.js';
-	import { Checkbox } from '#lib/components/ui/checkbox/index.js';
-	import { Label } from '#lib/components/ui/label/index.js';
 	import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.js';
 	import { LEVELS, SHAFTS, SHAFT_COLORS } from '#lib/hollow/data.js';
 	import { placeColor, type Place } from '#lib/hollow/nav.js';
@@ -288,17 +286,6 @@
 		>
 	</div>
 
-	<div class="flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
-		<Label class="text-xs font-normal">
-			<Checkbox bind:checked={directions.permit} />
-			Directorate permit
-		</Label>
-		<Label class="text-xs font-normal">
-			<Checkbox bind:checked={directions.unregistered} />
-			Unmapped routes
-		</Label>
-	</div>
-
 	{#if route}
 		<div class="flex flex-col gap-2 border-t border-sidebar-border pt-3">
 			<p class="flex items-baseline gap-2">
@@ -338,8 +325,7 @@
 	{:else if route === null}
 		<p class="flex gap-2 border-t border-sidebar-border pt-3 text-xs text-amber-500" role="status">
 			<TriangleAlertIcon class="mt-px size-3.5 shrink-0" />
-			No route. Blocked tunnels cut every way there, or it needs a permit or an unmapped shaft; try the
-			options above.
+			No route. Blocked tunnels cut every way there.
 		</p>
 	{/if}
 {/snippet}

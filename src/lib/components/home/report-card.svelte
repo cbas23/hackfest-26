@@ -79,10 +79,8 @@
 				<Dialog.Description>
 					{#if homePlace}
 						From {homePlace.label} · {LEVELS[homePlace.floor].code}
-						{LEVELS[homePlace.floor].name}.
+						{LEVELS[homePlace.floor].name}
 					{/if}
-					The report desk reads it with the current state of the city and updates the map. All data is
-					simulated.
 				</Dialog.Description>
 			</Dialog.Header>
 			<div class="flex flex-col gap-1.5">

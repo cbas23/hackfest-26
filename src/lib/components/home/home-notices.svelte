@@ -237,9 +237,8 @@
 							<Alert.Description class="flex flex-col gap-1 text-xs">
 								<span
 									class="text-[10px] font-medium tracking-wide uppercase"
-									style="color:{info.color}">{info.label} · {place.label}</span
+									style="color:{info.color}">{info.label}</span
 								>
-								<span>{n.detail}</span>
 								<button
 									type="button"
 									class="w-fit text-[11px] font-medium text-foreground underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none"
