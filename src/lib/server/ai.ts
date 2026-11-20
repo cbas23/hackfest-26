@@ -1,8 +1,11 @@
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { OPENROUTER_API_KEY } from '$app/env/private';
 
-/** DeepSeek's newest Flash snapshot on OpenRouter (pinned, so answers don't shift under us). */
-export const DEFAULT_MODEL = 'deepseek/deepseek-v4.1-flash-1017';
+/**
+ * DeepSeek's newest Flash snapshot on OpenRouter (pinned, so answers don't shift under us), on
+ * its `:nitro` variant: OpenRouter routes it to the fastest providers.
+ */
+export const DEFAULT_MODEL = 'deepseek/deepseek-v4.1-flash-1017:nitro';
 
 let provider: ReturnType<typeof createOpenRouter> | undefined;
 

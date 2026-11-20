@@ -90,7 +90,7 @@ Layers, bottom to top:
    - `app-sidebar.svelte` (home address, directions + data-layer cards: power, water, air,
      sickness, tunnels), `home-card.svelte` (home address + directions in one card) / `directions.svelte.ts` (route search
      between two places across levels; the map draws it with `routeOverlay`), `map-view.svelte` (3D map host and controls), `map-keys.ts` (keyboard control),
-     `place-card.svelte` (selection details), `home-notices.svelte` (live notifications for the
+     `place-card.svelte` (selection details), `report-card.svelte` (a button to send a report to the report agent, and its status), `home-notices.svelte` (live notifications for the
      saved home: new, worse, better and cleared), `state-legend.svelte`, `sickness-scale.svelte`,
      `place-icon.svelte`
    - `home-state.svelte.ts`: shared rune state. `home` (level, overview, open section),
@@ -109,7 +109,13 @@ Layers, bottom to top:
    `ssr = false`.
 
 AI: `#lib/server/ai.ts` (server only) gives `aiModel()`, an AI SDK (`ai`) model on OpenRouter,
-defaulting to DeepSeek V4.1 Flash. The key is `OPENROUTER_API_KEY` in `.env.local`. Nothing uses it yet.
+defaulting to DeepSeek V4.1 Flash. The key is `OPENROUTER_API_KEY` in `.env.local`.
+The report agent (`#lib/server/reportAgent.ts`, behind `POST /api/report`; shapes in
+`#lib/hollow/report.ts`) uses it: a resident's report plus their home block goes in with the
+current Convex state, and the agent edits the state with tools (add/update/remove points,
+block/reopen tunnels), checking the home's readings after each write. The sidebar's Report card
+(`report-card.svelte`, `report.svelte.ts`) sends reports and shows a short status line under
+its button (reviewing, received, or the error).
 
 Scratch-only modules: `#lib/intel` (fictional reports, vocabulary, history; not used by a page
 yet).

@@ -18,6 +18,7 @@
 	import StepScale from './step-scale.svelte';
 	import TunnelLegend from './tunnel-legend.svelte';
 	import HomeCard from './home-card.svelte';
+	import ReportCard from './report-card.svelte';
 	import SicknessScale from './sickness-scale.svelte';
 	import { home, type LayerId } from './home-state.svelte.js';
 
@@ -189,6 +190,8 @@
 			{/each}
 		</Accordion.Root>
 	</section>
+
+	<ReportCard />
 {/snippet}
 
 {#if wide.current}
@@ -213,7 +216,9 @@
 		>
 			<Sheet.Header class="border-b px-6 py-3">
 				<Sheet.Title class="text-sm">Map panel</Sheet.Title>
-				<Sheet.Description class="text-xs">Your home and directions, data layers</Sheet.Description>
+				<Sheet.Description class="text-xs"
+					>Your home and directions, data layers, reports</Sheet.Description
+				>
 			</Sheet.Header>
 			<ScrollArea class="min-h-0 flex-1 pb-[env(safe-area-inset-bottom)]">
 				{@render panel()}
