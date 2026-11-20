@@ -108,6 +108,9 @@ Layers, bottom to top:
 7. App shell: `src/routes/+layout.svelte` (`SiteNav`, a title-only header with no links; the Map is the default page and `/control` is reachable by URL only, + full-height content). The map routes use
    `ssr = false`.
 
+AI: `#lib/server/ai.ts` (server only) gives `aiModel()`, an AI SDK (`ai`) model on OpenRouter,
+defaulting to DeepSeek V4.1 Flash. The key is `OPENROUTER_API_KEY` in `.env.local`. Nothing uses it yet.
+
 Scratch-only modules: `#lib/intel` (fictional reports, vocabulary, history; not used by a page
 yet).
 
