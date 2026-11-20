@@ -2,15 +2,13 @@
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import MapIcon from '@lucide/svelte/icons/map';
-	import RouteIcon from '@lucide/svelte/icons/route';
 	import RadioTowerIcon from '@lucide/svelte/icons/radio-tower';
 	import { cn } from '#lib/utils.js';
 	import logo from '#lib/assets/favicon.svg';
 
 	const links = [
 		{ href: resolve('/'), label: 'Map', icon: MapIcon },
-		{ href: resolve('/control'), label: 'Control center', icon: RadioTowerIcon },
-		{ href: resolve('/hollow'), label: 'Directions', icon: RouteIcon }
+		{ href: resolve('/control'), label: 'Control center', icon: RadioTowerIcon }
 		// The tunnel generator (/tunnel-gen) is hidden from the nav but still reachable by URL.
 	];
 </script>

@@ -10,8 +10,8 @@
 **The real pages are the Main Map (`/`, `src/routes/+page.svelte`) and the Control center
 (`/control`), which edits the map's live events. Nothing else is real unless the user states otherwise.**
 
-- `/hollow` (Directions) and `/tunnel-gen` (Tunnel generator, hidden from the nav but reachable
-  by URL) are **scratch work** for prototyping features and logic.
+- `/tunnel-gen` (Tunnel generator, hidden from the nav but reachable by URL) is **scratch work**
+  for prototyping features and logic.
 - Product work goes into the Main Map (`src/lib/components/home/*`, `#lib/hollow`, `#lib/map`).
   If a feature from a scratch page is wanted, move it into the Main Map. Don't build it up on the
   scratch page.
@@ -79,16 +79,17 @@ Layers, bottom to top:
      The 3D map resolves any CSS colour with `cssHex` / `cssColor`.
    - `hollowMap.ts`: `createHollowMap` wraps `#lib/map` with level changes, the stacked
      all-levels view, outlines, pins and data lenses. Its parts live in `scene/`
-     (`transitions`, `stackPick`, `shaftColumns`, `outline`). Visuals only the scratch pages
-     use are add-ons that attach on first use: `routeOverlay`, `radarOverlay`,
+     (`transitions`, `stackPick`, `shaftColumns`, `outline`). Optional visuals are add-ons
+     that attach on first use: `routeOverlay` (the Main Map's directions), `radarOverlay`,
      `levelTintOverlay` (`scene/route.ts` etc., built on `hollowMap.hooks`).
    - `#lib/random.ts`: the shared seeded PRNG and hashes. Changing it changes every city.
    - `#lib/live/state.svelte.ts`: the browser's link to Convex. `connectLive()` subscribes to
      each table separately and calls `setState`; read `live.version` in `$derived` / `$effect`
      to recompute on changes; `mutate()` writes back (the Control center only).
 4. Main Map UI, in `src/lib/components/home/`:
-   - `app-sidebar.svelte` (home address + data-layer cards: power, water, air, sickness,
-     tunnels), `map-view.svelte` (3D map host and controls), `map-keys.ts` (keyboard control),
+   - `app-sidebar.svelte` (home address, directions + data-layer cards: power, water, air,
+     sickness, tunnels), `directions-panel.svelte` / `directions.svelte.ts` (route search
+     between two places across levels; the map draws it with `routeOverlay`), `map-view.svelte` (3D map host and controls), `map-keys.ts` (keyboard control),
      `place-card.svelte` (selection details), `home-notices.svelte` (live notifications for the
      saved home: new, worse, better and cleared), `state-legend.svelte`, `sickness-scale.svelte`,
      `place-icon.svelte`

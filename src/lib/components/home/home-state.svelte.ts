@@ -59,6 +59,8 @@ interface MapNav {
 	focusPlace(place: Place): void;
 	/** Go to a level and fly the camera to a tile point on it. */
 	focus(level: number, x: number, y: number): void;
+	/** Go to a level and frame the directions route's leg on it. */
+	showRoute(level: number): void;
 }
 
 let nav: MapNav | null = null;
@@ -70,5 +72,6 @@ export const mapNav: MapNav = {
 	goTo: (index) => nav?.goTo(index),
 	setOverview: (on) => nav?.setOverview(on),
 	focusPlace: (place) => nav?.focusPlace(place),
-	focus: (level, x, y) => nav?.focus(level, x, y)
+	focus: (level, x, y) => nav?.focus(level, x, y),
+	showRoute: (level) => nav?.showRoute(level)
 };

@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { onMount, type Snippet } from 'svelte';
 	import type { Room } from '#lib/tunnels/generate.js';
-	import { LEVELS } from '#lib/hollow/data.js';
+	import { LEVELS, SHAFTS, SHAFT_COLORS } from '#lib/hollow/data.js';
+	import { routeOverlay } from '#lib/hollow/scene/route.js';
+	import { directions } from './directions.svelte.js';
+	import RouteIcon from '@lucide/svelte/icons/route';
 	import { formatCount, formatDepth, formatPercent } from '#lib/hollow/format.js';
 	import { placeCentre, placeColor, type Place, type PlaceKind } from '#lib/hollow/nav.js';
 	import { createHollowMap, type HollowMap, type Pick } from '#lib/hollow/hollowMap.js';
@@ -167,7 +170,10 @@
 		// Mid-transition the scene can still show another level; ignore picks that landed there.
 		if (pick && pick.level !== levelIndex) return;
 		const p = placeOf(floor, pick?.room ?? null);
-		if (home.pickingHome) {
+		if (directions.picking) {
+			if (!p) return;
+			directions.set(directions.picking, p);
+		} else if (home.pickingHome) {
 			pickMiss = !!p && p.kind !== 'block';
 			if (p?.kind === 'block') setAddress(p.key);
 			else return;
@@ -183,18 +189,101 @@
 	});
 	const homePlace = $derived(placeByKey(home.address));
 
+	// ── Directions ───────────────────────────────────────────────────────────
+	const route = $derived(directions.route);
+
+	/** Go to a level and frame the route's leg on it (its first leg if it doesn't touch it). */
+	function showRoute(level: number) {
+		if (!route) return;
+		const leg = route.legs.find((l) => l.floor === level) ?? route.legs[0];
+		goTo(leg.floor);
+		const xs = leg.path.map((p) => p.x);
+		const ys = leg.path.map((p) => p.y);
+		scene?.fitBounds(Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys));
+	}
+
+	// Push the whole route into the scene; it shows the legs for whatever is on screen.
+	$effect(() => {
+		if (!scene) return;
+		routeOverlay(scene).set(
+			route
+				? {
+						legs: route.legs.map((l) => ({ level: l.floor, path: l.path })),
+						rides: route.rides.map((r) => {
+							const g = hollow.floor(r.from).shaftGates[r.shaft];
+							return { x: g.x + g.w / 2, y: g.y + g.h / 2, from: r.from, to: r.to };
+						})
+					}
+				: null
+		);
+	});
+
+	// When a new route appears, frame its first leg.
+	let framed = '';
+	$effect(() => {
+		if (!route) {
+			framed = '';
+			return;
+		}
+		const key = `${route.from.key}>${route.to.key}>${route.rides.map((r) => r.shaft).join()}`;
+		if (key === framed) return;
+		framed = key;
+		showRoute(route.from.floor);
+	});
+
+	/** Start and destination pins, and a "ride the shaft" chip where each leg ends. */
+	const routePins = $derived.by<PinSpec[]>(() => {
+		const out: PinSpec[] = [];
+		for (const [kind, p] of [
+			['from', directions.fromPlace],
+			['to', directions.toPlace]
+		] as const) {
+			if (!p || (!overview && p.floor !== levelIndex)) continue;
+			out.push({
+				key: `${kind}-${p.key}`,
+				...placeCentre(p),
+				h: 3,
+				level: p.floor,
+				kind,
+				label: p.label,
+				color: kind === 'from' ? 'var(--foreground)' : 'var(--destructive)',
+				place: p
+			});
+		}
+		if (route && !overview)
+			route.legs.forEach((leg, i) => {
+				const ride = route.rides[i];
+				if (leg.floor !== levelIndex || !ride) return;
+				const gate = floor.shaftGates[ride.shaft];
+				out.push({
+					key: `ride-${i}`,
+					x: gate.x + gate.w / 2,
+					y: gate.y + gate.h / 2,
+					h: pinHeight('shaft'),
+					level: levelIndex,
+					kind: 'ride',
+					label: `${ride.to > ride.from ? '▼' : '▲'} ${SHAFTS[ride.shaft].name} to ${LEVELS[ride.to].code}`,
+					color: SHAFT_COLORS[SHAFTS[ride.shaft].status],
+					toFloor: ride.to
+				});
+			});
+		return out;
+	});
+
 	// ── Pins (HTML markers pinned to the 3D scene) ───────────────────────────
 	interface PinSpec {
 		key: string;
 		x: number;
 		y: number;
 		h: number;
-		kind: PlaceKind | 'level' | 'home' | 'blocked';
+		kind: PlaceKind | 'level' | 'home' | 'blocked' | 'from' | 'to' | 'ride';
 		level: number;
 		label: string;
 		color: string;
 		place?: Place;
 		blocked?: BlockedTunnel;
+		/** Ride chips: the level the shaft ride goes to. */
+		toFloor?: number;
 	}
 	/** Pin height above the floor, by kind: over the roof of its building. */
 	const pinHeight = (kind: PlaceKind) => (kind === 'shaft' ? 7.5 : kind === 'plant' ? 4.5 : 3.5);
@@ -254,7 +343,7 @@
 					label: l.name,
 					color: 'var(--foreground)'
 				};
-			}).concat(blockedPins, homePins);
+			}).concat(blockedPins, homePins, routePins);
 		}
 		return sim.places
 			.filter((p) => p.kind !== 'block')
@@ -268,7 +357,7 @@
 				color: placeColor(p),
 				place: p
 			}))
-			.concat(blockedPins, homePins);
+			.concat(blockedPins, homePins, routePins);
 	});
 	const pinEls = $state<Record<string, HTMLElement>>({});
 	$effect(() => {
@@ -327,7 +416,8 @@
 			goTo,
 			setOverview,
 			focusPlace,
-			focus
+			focus,
+			showRoute
 		});
 		s.showFloor(hollow.floor(0), 0);
 		s.fitBounds(...floorBounds(hollow.floor(0)));
@@ -343,7 +433,8 @@
 			fit: fitView,
 			toggleOverview: () => setOverview(!overview),
 			escape: () => {
-				if (home.pickingHome) home.pickingHome = false;
+				if (directions.picking) directions.picking = null;
+				else if (home.pickingHome) home.pickingHome = false;
 				else if (selected) select(null);
 				else if (overview) setOverview(false);
 			}
@@ -402,7 +493,7 @@
 			bind:this={container}
 			class={cn(
 				'absolute inset-0',
-				home.pickingHome && !overview
+				(home.pickingHome || directions.picking) && !overview
 					? 'cursor-crosshair'
 					: hover || hoverLevel !== null
 						? 'cursor-pointer'
@@ -465,6 +556,40 @@
 								>
 							{/if}
 						</button>
+					{:else if p.kind === 'to'}
+						<svg
+							viewBox="0 0 24 34"
+							class="absolute h-9 w-7 -translate-x-1/2 -translate-y-full drop-shadow-lg"
+							role="img"
+							aria-label="Destination: {p.label}"
+						>
+							<path
+								d="M12 0C5.4 0 0 5.2 0 11.7 0 20.5 12 34 12 34s12-13.5 12-22.3C24 5.2 18.6 0 12 0z"
+								fill="var(--destructive)"
+							/>
+							<circle
+								cx="12"
+								cy="12"
+								r="4.5"
+								fill="color-mix(in oklch, var(--destructive) 40%, black)"
+							/>
+						</svg>
+					{:else if p.kind === 'from'}
+						<span
+							class="absolute block size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-foreground bg-sky-500 shadow-lg"
+							role="img"
+							aria-label="Start: {p.label}"
+						></span>
+					{:else if p.kind === 'ride'}
+						{@const to = p.toFloor!}
+						<Button
+							size="xs"
+							class="pointer-events-auto absolute -translate-x-1/2 -translate-y-[calc(100%+18px)] rounded-full shadow-lg"
+							style="background:{p.color}"
+							onclick={() => showRoute(to)}
+						>
+							{p.label}
+						</Button>
 					{:else if p.kind === 'blocked'}
 						{@const b = p.blocked!}
 						<button
@@ -504,7 +629,20 @@
 			{/each}
 		</div>
 
-		{#if home.pickingHome}
+		{#if directions.picking}
+			<div
+				class="alert-in absolute top-4 left-1/2 z-30 flex -translate-x-1/2 items-center gap-3 rounded-full border border-primary/50 bg-background/95 py-1.5 pr-1.5 pl-3 text-sm shadow-lg backdrop-blur"
+				role="status"
+			>
+				<RouteIcon class="size-4 text-primary" />
+				<span>
+					{overview ? 'Choose a level, then click' : 'Click'} a place to set the
+					{directions.picking === 'from' ? 'start' : 'destination'}
+				</span>
+				<Button size="sm" variant="ghost" onclick={() => (directions.picking = null)}>Cancel</Button
+				>
+			</div>
+		{:else if home.pickingHome}
 			<div
 				class="alert-in absolute top-4 left-1/2 z-30 flex -translate-x-1/2 items-center gap-3 rounded-full border border-primary/50 bg-background/95 py-1.5 pr-1.5 pl-3 text-sm shadow-lg backdrop-blur"
 				role="status"

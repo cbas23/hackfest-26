@@ -16,6 +16,8 @@
 	import HouseIcon from '@lucide/svelte/icons/house';
 	import { home, setAddress } from './home-state.svelte.js';
 	import PlaceIcon from './place-icon.svelte';
+	import RouteIcon from '@lucide/svelte/icons/route';
+	import { directions } from './directions.svelte.js';
 
 	let {
 		place: p,
@@ -115,6 +117,15 @@
 			</dl>
 			<p class="-mt-1 text-[10px] text-muted-foreground">Simulated readings</p>
 		{/if}
+
+		<div class="flex gap-2">
+			<Button size="sm" class="flex-1" onclick={() => directions.set('to', p)}>
+				<RouteIcon />Directions
+			</Button>
+			<Button variant="outline" size="sm" class="flex-1" onclick={() => directions.set('from', p)}>
+				Start here
+			</Button>
+		</div>
 
 		{#if sickness}
 			<Separator />

@@ -13,11 +13,10 @@ facilities, simulated sensor readings, infrastructure impact, and lung-sickness 
 **All the tabs except for Map are for scratch work. The real page is the Main Map, and it stays the
 only real page unless stated otherwise.**
 
-| Tab              | Route         | Status                                                                     |
-| ---------------- | ------------- | -------------------------------------------------------------------------- |
-| Map              | `/`           | **The real product.** Sidebar plus 3D map                                  |
-| Directions       | `/hollow`     | Scratch: an earlier map prototype with route finding and impact assessment |
-| Tunnel generator | `/tunnel-gen` | Scratch, hidden from the nav: a 2D playground for the tunnel generator     |
+| Tab              | Route         | Status                                                                 |
+| ---------------- | ------------- | ---------------------------------------------------------------------- |
+| Map              | `/`           | **The real product.** Sidebar plus 3D map                              |
+| Tunnel generator | `/tunnel-gen` | Scratch, hidden from the nav: a 2D playground for the tunnel generator |
 
 Scratch pages are there to prototype features and try out logic. Features that prove useful get
 moved into the Main Map. Don't polish the scratch pages for their own sake.
@@ -56,7 +55,6 @@ src/
 │   ├── +layout.svelte          App shell: SiteNav across the top, page below (full viewport height)
 │   ├── layout.css              Tailwind + shadcn theme tokens, plus the --map-* colours the 3D map reads
 │   ├── +page.svelte            MAIN MAP (real page): AppSidebar + MapView, client-only (ssr = false)
-│   ├── hollow/                 scratch: Directions prototype
 │   └── tunnel-gen/             scratch: 2D generator playground (not in the nav)
 ├── lib/
 │   ├── components/
@@ -65,6 +63,7 @@ src/
 │   │   │   ├── app-sidebar.svelte    Level picker (L1 to L7 + "all levels") and data-layer cards
 │   │   │   ├── map-view.svelte       Hosts the 3D map, controls, pins, hover/selection
 │   │   │   ├── place-card.svelte     Details for the selected place (sensors, impact, sickness)
+│   │   │   ├── directions-panel.svelte  Sidebar directions: from/to search, route summary (state in directions.svelte.ts)
 │   │   │   ├── home-state.svelte.ts  Shared rune state between the sidebar and the map (level, overview, open lens)
 │   │   │   └── sickness-scale.svelte, place-icon.svelte
 │   │   └── ui/                 shadcn-svelte components (generated; add more with the shadcn CLI)
