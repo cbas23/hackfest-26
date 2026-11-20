@@ -4,6 +4,9 @@ import type { Place } from '#lib/hollow/nav.js';
 /** Ids of the sidebar's data-layer cards (see `LAYERS` in app-sidebar.svelte). */
 export type LayerId = 'power' | 'water' | 'air' | 'sickness' | 'tunnels';
 
+/** Where the home block is saved in this browser (declared before `home` reads it). */
+const ADDRESS_KEY = 'hollow.home';
+
 /** UI state shared between the sidebar and the map. */
 export const home = $state({
 	/** The open data-layer card ('' when all are closed). Only one can be open at a time. */
@@ -19,8 +22,6 @@ export const home = $state({
 	/** Phones: the sidebar is a drawer over the map, and this says whether it is open. */
 	panelOpen: false
 });
-
-const ADDRESS_KEY = 'hollow.home';
 
 function loadAddress(): string | null {
 	try {
