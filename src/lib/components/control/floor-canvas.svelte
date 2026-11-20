@@ -41,7 +41,7 @@
 	const px = (x: number) => view.ox + (x - view.x0) * view.scale;
 	const py = (y: number) => view.oy + (y - view.y0) * view.scale;
 
-	function tileAt(e: PointerEvent): Tile {
+	function tileAt(e: MouseEvent): Tile {
 		const r = canvas.getBoundingClientRect();
 		return {
 			x: Math.floor((e.clientX - r.left - view.ox) / view.scale + view.x0),
@@ -55,7 +55,20 @@
 		return start ? tunnelRun(floor, start, control.tunnelLength) : [];
 	};
 
-	function onclick(e: PointerEvent) {
+	/**
+	 * A mouse places on press. Touch and pen place on a tap (the click that follows a press that
+	 * didn't move), so a swipe across the map scrolls the page instead of placing anything.
+	 */
+	let lastPointer = 'mouse';
+	function onpointerdown(e: PointerEvent) {
+		lastPointer = e.pointerType;
+		if (e.pointerType === 'mouse') place(e);
+	}
+	function onclick(e: MouseEvent) {
+		if (lastPointer !== 'mouse') place(e);
+	}
+
+	function place(e: MouseEvent) {
 		const t = tileAt(e);
 		if (control.busy) return;
 		if (isPointTab(control.tab)) void addPoint(control.tab, t.x, t.y);
@@ -231,7 +244,9 @@
 		aria-label="Map of the level. Click to place a point or block a tunnel."
 		onpointermove={(e) => (hover = tileAt(e))}
 		onpointerleave={() => (hover = null)}
-		onpointerdown={onclick}
+		onpointercancel={() => (hover = null)}
+		{onpointerdown}
+		{onclick}
 	></canvas>
 	{#if hover}
 		<span

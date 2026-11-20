@@ -41,6 +41,8 @@
 		// Blocks are picked on a single level: open the home's level, or the one last shown.
 		if (home.overview) mapNav.goTo(place?.floor ?? home.level);
 		home.pickingHome = true;
+		// Phones: picking needs the map, so close the drawer over it.
+		home.panelOpen = false;
 		directions.picking = null;
 		editing = false;
 		error = '';
@@ -83,7 +85,7 @@
 					placeholder="Block, e.g. {example}"
 					aria-label="Home block"
 					aria-invalid={error ? true : undefined}
-					class="h-8 text-sm"
+					class="h-8"
 					oninput={() => (error = '')}
 				/>
 				<Button type="submit" size="sm" disabled={!text.trim()}>Set</Button>

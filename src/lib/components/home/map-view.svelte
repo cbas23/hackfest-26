@@ -38,6 +38,8 @@
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import MinusIcon from '@lucide/svelte/icons/minus';
 	import ScanIcon from '@lucide/svelte/icons/scan';
+	import PanelLeftOpenIcon from '@lucide/svelte/icons/panel-left-open';
+	import { MediaQuery } from 'svelte/reactivity';
 
 	// The state (power, water and air points, tunnels, sickness) comes live from Convex.
 	connectLive();
@@ -75,6 +77,9 @@
 	}
 
 	const level = $derived(LEVELS[levelIndex]);
+	/** Touch screens get "tap" instead of "click" in the prompts. */
+	const coarse = new MediaQuery('pointer: coarse');
+	const Click = $derived(coarse.current ? 'Tap' : 'Click');
 	// Mirror the view into shared state for the sidebar.
 	$effect(() => {
 		home.level = levelIndex;
@@ -451,8 +456,18 @@
 
 <div class="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
 	<!-- Level bar -->
-	<header class="flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-4 py-2.5">
-		<div class="flex min-w-0 flex-col">
+	<header class="flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-3 py-2 sm:px-4 sm:py-2.5">
+		<Button
+			variant="outline"
+			size="icon"
+			class="-mr-1 shrink-0 md:hidden"
+			aria-label="Open the map panel: your home, directions and data layers"
+			title="Your home, directions and data layers"
+			onclick={() => (home.panelOpen = true)}
+		>
+			<PanelLeftOpenIcon />
+		</Button>
+		<div class="flex min-w-0 flex-1 flex-col md:flex-none">
 			<h1 class="truncate text-sm font-semibold">
 				{overview ? 'All levels' : `${level.code} ${level.name}`}
 			</h1>
@@ -466,17 +481,23 @@
 			type="single"
 			variant="outline"
 			size="sm"
-			class="ml-auto"
+			class="max-sm:w-full sm:ml-auto"
 			aria-label="Map level"
 			bind:value={() => layerValue, selectLayer}
 		>
-			<ToggleGroup.Item value="all" aria-label="All levels" title="All levels" class="gap-1">
+			<ToggleGroup.Item
+				value="all"
+				aria-label="All levels"
+				title="All levels"
+				class="gap-1 max-sm:h-9 max-sm:min-w-0 max-sm:flex-1 max-sm:px-1"
+			>
 				<LayersIcon class="size-3.5" />
 				All
 			</ToggleGroup.Item>
 			{#each LEVELS as l (l.code)}
 				<ToggleGroup.Item
 					value={l.code}
+					class="max-sm:h-9 max-sm:min-w-0 max-sm:flex-1 max-sm:px-1"
 					aria-label="{l.name}, {formatDepth(l.depth)}"
 					title="{l.name} · {formatDepth(l.depth)}">{l.code}</ToggleGroup.Item
 				>
@@ -631,12 +652,12 @@
 
 		{#if directions.picking}
 			<div
-				class="alert-in absolute top-4 left-1/2 z-30 flex -translate-x-1/2 items-center gap-3 rounded-full border border-primary/50 bg-background/95 py-1.5 pr-1.5 pl-3 text-sm shadow-lg backdrop-blur"
+				class="alert-in absolute top-2 right-2 left-2 z-30 flex items-center gap-3 rounded-xl border border-primary/50 bg-background/95 py-1.5 pr-1.5 pl-3 text-sm shadow-lg backdrop-blur sm:top-4 sm:right-auto sm:left-1/2 sm:-translate-x-1/2 sm:rounded-full"
 				role="status"
 			>
-				<RouteIcon class="size-4 text-primary" />
-				<span>
-					{overview ? 'Choose a level, then click' : 'Click'} a place to set the
+				<RouteIcon class="size-4 shrink-0 text-primary" />
+				<span class="min-w-0 flex-1">
+					{overview ? `Choose a level, then ${Click.toLowerCase()}` : Click} a place to set the
 					{directions.picking === 'from' ? 'start' : 'destination'}
 				</span>
 				<Button size="sm" variant="ghost" onclick={() => (directions.picking = null)}>Cancel</Button
@@ -644,14 +665,14 @@
 			</div>
 		{:else if home.pickingHome}
 			<div
-				class="alert-in absolute top-4 left-1/2 z-30 flex -translate-x-1/2 items-center gap-3 rounded-full border border-primary/50 bg-background/95 py-1.5 pr-1.5 pl-3 text-sm shadow-lg backdrop-blur"
+				class="alert-in absolute top-2 right-2 left-2 z-30 flex items-center gap-3 rounded-xl border border-primary/50 bg-background/95 py-1.5 pr-1.5 pl-3 text-sm shadow-lg backdrop-blur sm:top-4 sm:right-auto sm:left-1/2 sm:-translate-x-1/2 sm:rounded-full"
 				role="status"
 			>
-				<HouseIcon class="size-4 text-primary" />
-				<span>
-					{#if overview}Choose a level, then click your block
-					{:else if pickMiss}That isn't a home. Click a habitation block
-					{:else}Click your block on the map to set it as your home{/if}
+				<HouseIcon class="size-4 shrink-0 text-primary" />
+				<span class="min-w-0 flex-1">
+					{#if overview}Choose a level, then {Click.toLowerCase()} your block
+					{:else if pickMiss}That isn't a home. {Click} a habitation block
+					{:else}{Click} your block on the map to set it as your home{/if}
 				</span>
 				<Button size="sm" variant="ghost" onclick={() => (home.pickingHome = false)}>Cancel</Button>
 			</div>
@@ -659,7 +680,12 @@
 
 		{#snippet lensPanel(title: string, body: Snippet)}
 			<div
-				class="absolute top-4 left-4 z-10 flex w-56 flex-col gap-1.5 rounded-lg border bg-background/90 p-3 text-xs backdrop-blur"
+				class={cn(
+					'absolute z-10 flex flex-col gap-1.5 rounded-lg border bg-background/90 p-3 text-xs backdrop-blur',
+					// Phones: bottom left, clear of the notices above and the controls to the right.
+					'bottom-3 left-3 w-[min(14rem,calc(100%-4.75rem))] sm:top-4 sm:bottom-auto sm:left-4 sm:w-56',
+					selected && 'max-sm:hidden'
+				)}
 			>
 				<div class="flex items-center justify-between">
 					<span class="font-semibold">{title}</span>
@@ -710,10 +736,17 @@
 		{/if}
 
 		<!-- Notifications for the saved home -->
-		<HomeNotices class="absolute top-4 right-4 z-20" />
+		<HomeNotices
+			class="absolute top-2 right-2 z-20 max-sm:left-2 max-sm:w-auto max-sm:max-w-none sm:top-4 sm:right-4"
+		/>
 
 		<!-- Map controls -->
-		<div class="absolute right-4 bottom-4 z-10 flex flex-col items-end gap-2">
+		<div
+			class={cn(
+				'absolute right-3 bottom-3 z-10 flex flex-col items-end gap-2 sm:right-4 sm:bottom-4',
+				selected && 'max-sm:hidden'
+			)}
+		>
 			<Button
 				variant="outline"
 				size="icon"
@@ -755,7 +788,7 @@
 
 		{#if selected}
 			<PlaceCard
-				class="absolute bottom-4 left-4 z-20"
+				class="absolute inset-x-2 bottom-2 z-20 max-sm:max-h-[65%] max-sm:w-auto sm:right-auto sm:bottom-4 sm:left-4"
 				place={selected}
 				sim={selectedSim!}
 				color={placeColor(selected)}

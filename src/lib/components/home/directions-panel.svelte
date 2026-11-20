@@ -27,7 +27,12 @@
 		field = null;
 		query = '';
 		// With one end set, show it; once both are set the map frames the route instead.
-		if (!directions.route) mapNav.focusPlace(p);
+		if (!directions.route) {
+			// On phones, keep the drawer open: the other end is still to fill in.
+			const open = home.panelOpen;
+			mapNav.focusPlace(p);
+			home.panelOpen = open;
+		}
 	}
 
 	const ENDS = [
@@ -60,7 +65,7 @@
 							{@const picking = directions.picking === end}
 							<div class="relative flex gap-1">
 								<Input
-									class={cn('h-8 text-sm', picking && 'border-primary')}
+									class={cn('h-8', picking && 'border-primary')}
 									placeholder={picking ? 'Click a place on the map…' : label}
 									aria-label={label}
 									autocomplete="off"
@@ -76,7 +81,11 @@
 									aria-label="Choose the {label.toLowerCase()} on the map"
 									aria-pressed={picking}
 									title="Choose on the map"
-									onclick={() => directions.pick(end)}><CrosshairIcon /></Button
+									onclick={() => {
+										directions.pick(end);
+										// Phones: picking needs the map, so close the drawer over it.
+										if (directions.picking) home.panelOpen = false;
+									}}><CrosshairIcon /></Button
 								>
 								{#if field === end}
 									<ul

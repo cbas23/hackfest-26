@@ -71,10 +71,15 @@
 
 <svelte:head><title>The Hollow · Control center</title></svelte:head>
 
-<main class="flex h-full flex-col overflow-hidden lg:flex-row">
+<!-- Phones: the page scrolls, the level map on top and the editing panel below it. -->
+<main class="flex h-full flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
 	<!-- The level and its state -->
-	<section class="flex min-h-[55vh] min-w-0 flex-1 flex-col lg:min-h-0">
-		<header class="flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-4 py-2.5">
+	<section
+		class="flex h-[70svh] min-w-0 shrink-0 flex-col lg:h-auto lg:min-h-0 lg:flex-1 lg:shrink"
+	>
+		<header
+			class="flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-3 py-2 sm:px-4 sm:py-2.5"
+		>
 			<div class="flex flex-col">
 				<h1 class="text-sm font-semibold">Control center</h1>
 				<p class="text-[11px] text-muted-foreground">
@@ -85,7 +90,7 @@
 				type="single"
 				variant="outline"
 				size="sm"
-				class="ml-auto"
+				class="max-sm:w-full sm:ml-auto"
 				aria-label="Level"
 				bind:value={
 					() => level.code, (v) => v && (control.level = LEVELS.findIndex((l) => l.code === v))
@@ -96,7 +101,7 @@
 					<ToggleGroup.Item
 						value={l.code}
 						aria-label="{l.name}, {n} points and tunnels"
-						class="gap-1"
+						class="gap-1 max-sm:h-9 max-sm:min-w-0 max-sm:flex-1 max-sm:px-1"
 					>
 						{l.code}
 						{#if n}<span class="text-[10px] text-muted-foreground tabular-nums">{n}</span>{/if}
@@ -120,9 +125,9 @@
 
 	<!-- Editing -->
 	<aside
-		class="flex w-full shrink-0 flex-col overflow-y-auto border-t bg-sidebar lg:w-[400px] lg:border-t-0 lg:border-l"
+		class="flex w-full shrink-0 flex-col border-t bg-sidebar pb-[env(safe-area-inset-bottom)] lg:w-[400px] lg:overflow-y-auto lg:border-t-0 lg:border-l"
 	>
-		<div class="flex flex-col gap-2 border-b p-4">
+		<div class="flex flex-col gap-2 border-b p-3 sm:p-4">
 			<div class="flex items-center justify-between text-xs">
 				<span class="flex items-center gap-1.5">
 					<span
@@ -171,12 +176,17 @@
 			</div>
 		</div>
 
-		<Tabs.Root bind:value={control.tab} class="flex flex-col gap-3 p-4">
-			<Tabs.List class="w-full">
+		<Tabs.Root bind:value={control.tab} class="flex flex-col gap-3 p-3 sm:p-4">
+			<!-- Phones: the label goes under the icon, so every tab stays named. -->
+			<Tabs.List class="w-full max-sm:group-data-horizontal/tabs:h-auto">
 				{#each TABS as t (t.value)}
-					<Tabs.Trigger value={t.value} class="flex-1 gap-1 px-1 text-xs" title={t.label}>
+					<Tabs.Trigger
+						value={t.value}
+						class="flex-1 gap-1 px-1 text-xs max-sm:h-auto max-sm:flex-col max-sm:gap-0.5 max-sm:py-1.5 max-sm:text-[10px]"
+						title={t.label}
+					>
 						<t.icon class="size-3.5" />
-						<span class="hidden sm:inline">{t.label}</span>
+						<span>{t.label}</span>
 					</Tabs.Trigger>
 				{/each}
 			</Tabs.List>

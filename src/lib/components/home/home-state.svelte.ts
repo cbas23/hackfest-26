@@ -15,7 +15,9 @@ export const home = $state({
 	/** The viewer's home block, as a place key ("<level>:<roomId>"); saved in this browser. */
 	address: loadAddress(),
 	/** True while the next click on the map sets the home block. */
-	pickingHome: false
+	pickingHome: false,
+	/** Phones: the sidebar is a drawer over the map, and this says whether it is open. */
+	panelOpen: false
 });
 
 const ADDRESS_KEY = 'hollow.home';
@@ -68,10 +70,17 @@ let nav: MapNav | null = null;
 export const registerMapNav = (n: MapNav | null) => {
 	nav = n;
 };
+/** Driving the map from the sidebar closes the phone drawer, so the map shows what changed. */
+const drive =
+	<A extends unknown[]>(fn: (n: MapNav, ...a: A) => void) =>
+	(...a: A) => {
+		home.panelOpen = false;
+		if (nav) fn(nav, ...a);
+	};
 export const mapNav: MapNav = {
-	goTo: (index) => nav?.goTo(index),
-	setOverview: (on) => nav?.setOverview(on),
-	focusPlace: (place) => nav?.focusPlace(place),
-	focus: (level, x, y) => nav?.focus(level, x, y),
-	showRoute: (level) => nav?.showRoute(level)
+	goTo: drive((n, index) => n.goTo(index)),
+	setOverview: drive((n, on) => n.setOverview(on)),
+	focusPlace: drive((n, place) => n.focusPlace(place)),
+	focus: drive((n, level, x, y) => n.focus(level, x, y)),
+	showRoute: drive((n, level) => n.showRoute(level))
 };

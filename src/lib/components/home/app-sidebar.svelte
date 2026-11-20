@@ -1,6 +1,10 @@
 <script lang="ts">
 	import * as Accordion from '#lib/components/ui/accordion/index.js';
 	import { ScrollArea } from '#lib/components/ui/scroll-area/index.js';
+	import * as Sheet from '#lib/components/ui/sheet/index.js';
+	import { Button } from '#lib/components/ui/button/index.js';
+	import { MediaQuery } from 'svelte/reactivity';
+	import MapIcon from '@lucide/svelte/icons/map';
 	import { SICK_STEPS } from '#lib/hollow/sickness.js';
 	import { cn } from '#lib/utils.js';
 	import type { Component, Snippet } from 'svelte';
@@ -73,6 +77,10 @@
 			content: tunnelsInfo
 		}
 	];
+
+	/** Wide screens keep the sidebar beside the map; phones get it as a drawer over the map. */
+	const wide = new MediaQuery('min-width: 48rem');
+	let drawer = $state<HTMLElement | null>(null);
 </script>
 
 {#snippet scale(label: string, kind: 'power' | 'water' | 'air')}
@@ -127,59 +135,91 @@
 	<TunnelLegend class="text-muted-foreground" />
 {/snippet}
 
-<aside
-	class="hidden h-full w-80 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex"
->
-	<ScrollArea class="min-h-0 flex-1">
-		<HomeAddress />
-		<DirectionsPanel />
+{#snippet panel()}
+	<HomeAddress />
+	<DirectionsPanel />
 
-		<section class="mx-3 mt-4 mb-5">
-			<h2 id="layers-heading" class="mb-2 px-3 text-xs font-medium text-muted-foreground">
-				Information
-			</h2>
-			<Accordion.Root
-				type="single"
-				bind:value={() => home.section, (v) => (home.section = v as LayerId | '')}
-				class="flex flex-col gap-2"
-				aria-labelledby="layers-heading"
-			>
-				{#each LAYERS as layer (layer.id)}
-					{@const open = home.section === layer.id}
-					<Accordion.Item
-						value={layer.id}
-						class={cn(
-							'overflow-hidden rounded-lg border bg-card transition-colors',
-							open ? 'border-primary/50' : 'hover:border-muted-foreground/40'
-						)}
+	<section class="mx-3 mt-4 mb-5">
+		<h2 id="layers-heading" class="mb-2 px-3 text-xs font-medium text-muted-foreground">
+			Information
+		</h2>
+		<Accordion.Root
+			type="single"
+			bind:value={() => home.section, (v) => (home.section = v as LayerId | '')}
+			class="flex flex-col gap-2"
+			aria-labelledby="layers-heading"
+		>
+			{#each LAYERS as layer (layer.id)}
+				{@const open = home.section === layer.id}
+				<Accordion.Item
+					value={layer.id}
+					class={cn(
+						'overflow-hidden rounded-lg border bg-card transition-colors',
+						open ? 'border-primary/50' : 'hover:border-muted-foreground/40'
+					)}
+				>
+					<Accordion.Trigger
+						class="items-center rounded-none px-3 py-3 hover:no-underline focus-visible:ring-inset"
 					>
-						<Accordion.Trigger
-							class="items-center rounded-none px-3 py-3 hover:no-underline focus-visible:ring-inset"
-						>
-							<span class="flex min-w-0 items-center gap-3">
-								<span
-									class="grid size-8 shrink-0 place-items-center rounded-md border"
-									style="color:{layer.color};border-color:{layer.color};background:color-mix(in oklab, {layer.color} 18%, var(--card))"
-									aria-hidden="true"
-								>
-									<layer.icon class="size-4" />
-								</span>
-								<span class="flex min-w-0 flex-col">
-									<span class="truncate">{layer.title}</span>
-									<span class="truncate text-xs font-normal text-muted-foreground">
-										{open ? 'Shown on the map' : layer.summary}
-									</span>
+						<span class="flex min-w-0 items-center gap-3">
+							<span
+								class="grid size-8 shrink-0 place-items-center rounded-md border"
+								style="color:{layer.color};border-color:{layer.color};background:color-mix(in oklab, {layer.color} 18%, var(--card))"
+								aria-hidden="true"
+							>
+								<layer.icon class="size-4" />
+							</span>
+							<span class="flex min-w-0 flex-col">
+								<span class="truncate">{layer.title}</span>
+								<span class="truncate text-xs font-normal text-muted-foreground">
+									{open ? 'Shown on the map' : layer.summary}
 								</span>
 							</span>
-						</Accordion.Trigger>
-						<Accordion.Content
-							class="flex flex-col gap-3 border-t px-3 pt-3 pb-3 text-muted-foreground [&_p:not(:last-child)]:mb-0"
-						>
-							{@render layer.content()}
-						</Accordion.Content>
-					</Accordion.Item>
-				{/each}
-			</Accordion.Root>
-		</section>
-	</ScrollArea>
-</aside>
+						</span>
+					</Accordion.Trigger>
+					<Accordion.Content
+						class="flex flex-col gap-3 border-t px-3 pt-3 pb-3 text-muted-foreground [&_p:not(:last-child)]:mb-0"
+					>
+						{@render layer.content()}
+						{#if !wide.current}
+							<Button size="sm" variant="secondary" onclick={() => (home.panelOpen = false)}>
+								<MapIcon />See it on the map
+							</Button>
+						{/if}
+					</Accordion.Content>
+				</Accordion.Item>
+			{/each}
+		</Accordion.Root>
+	</section>
+{/snippet}
+
+{#if wide.current}
+	<aside
+		class="flex h-full w-80 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
+	>
+		<ScrollArea class="min-h-0 flex-1">
+			{@render panel()}
+		</ScrollArea>
+	</aside>
+{:else}
+	<Sheet.Root bind:open={home.panelOpen}>
+		<!-- Don't focus the address field on open: on a phone that pops up the keyboard. -->
+		<Sheet.Content
+			side="left"
+			class="gap-0 bg-sidebar p-0 pt-[env(safe-area-inset-top)] text-sidebar-foreground data-[side=left]:w-[min(22rem,88vw)]"
+			bind:ref={drawer}
+			onOpenAutoFocus={(e) => {
+				e.preventDefault();
+				drawer?.focus();
+			}}
+		>
+			<Sheet.Header class="border-b px-6 py-3">
+				<Sheet.Title class="text-sm">Map panel</Sheet.Title>
+				<Sheet.Description class="text-xs">Your home, directions and data layers</Sheet.Description>
+			</Sheet.Header>
+			<ScrollArea class="min-h-0 flex-1 pb-[env(safe-area-inset-bottom)]">
+				{@render panel()}
+			</ScrollArea>
+		</Sheet.Content>
+	</Sheet.Root>
+{/if}
