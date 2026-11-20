@@ -22,6 +22,7 @@
 	import { directions, searchPlaces, type End } from './directions.svelte.js';
 	import { home, mapNav, setAddress } from './home-state.svelte.js';
 	import PlaceIcon from './place-icon.svelte';
+	import SafetyRing from './safety-ring.svelte';
 
 	/**
 	 * The viewer's home and directions in one sidebar section. It grows with the task: an address form while
@@ -185,6 +186,7 @@
 			aria-hidden="true"
 		/>
 	</button>
+	<SafetyRing {place} />
 	{#if home.pickingHome}
 		<div class="flex">{@render pickHomeButton()}</div>
 	{:else}
