@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Input } from '#lib/components/ui/input/index.js';
+	import { Checkbox } from '#lib/components/ui/checkbox/index.js';
+	import { Label } from '#lib/components/ui/label/index.js';
 	import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.js';
 	import { LEVELS, SHAFTS, SHAFT_COLORS } from '#lib/hollow/data.js';
 	import { placeColor, type Place } from '#lib/hollow/nav.js';
@@ -15,13 +17,14 @@
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
 	import XIcon from '@lucide/svelte/icons/x';
+	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { exampleAddress, parseAddress, placeByKey } from './address.js';
 	import { directions, searchPlaces, type End } from './directions.svelte.js';
 	import { home, mapNav, setAddress } from './home-state.svelte.js';
 	import PlaceIcon from './place-icon.svelte';
 
 	/**
-	 * The viewer's home and directions in one card. It grows with the task: an address form while
+	 * The viewer's home and directions in one sidebar section. It grows with the task: an address form while
 	 * no home is saved, a one-line home with a directions button once it is, and the route
 	 * planner (starting from home) while directions are open.
 	 */
@@ -104,71 +107,91 @@
 	] as const;
 </script>
 
-<section class="mx-3 mt-4" aria-labelledby="home-heading">
-	<h2 id="home-heading" class="mb-2 px-3 text-xs font-medium text-muted-foreground">
-		{directions.open ? 'Directions' : 'Your home'}
-	</h2>
-	<div class="rounded-lg border bg-card p-2.5">
+<section
+	class="flex flex-col gap-3 border-b border-sidebar-border px-3 pt-4 pb-5"
+	aria-labelledby="home-heading"
+>
+	<div class="flex h-7 items-center justify-between gap-2 px-3">
+		<h2 id="home-heading" class="text-xs font-medium text-muted-foreground">
+			{directions.open ? 'Directions' : 'Your home'}
+		</h2>
 		{#if directions.open}
-			{@render planner()}
-		{:else}
-			{#if homePlace && !editing}
-				{@render homeRow(homePlace)}
-			{/if}
-			{#if showForm}
-				{@render addressForm()}
-			{/if}
-		{/if}
-	</div>
-</section>
-
-{#snippet homeRow(place: Place)}
-	<div class="flex flex-col gap-2.5">
-		<div class="flex items-center gap-3">
-			<PlaceIcon kind="block" color={placeColor(place)} size={32} />
-			<div class="flex min-w-0 flex-1 flex-col">
-				<span class="truncate text-sm font-medium">{place.label}</span>
-				<span class="truncate text-xs text-muted-foreground"
-					>{LEVELS[place.floor].code} {LEVELS[place.floor].name}</span
-				>
-			</div>
 			<Button
 				variant="ghost"
 				size="icon-sm"
-				aria-label="Show my home on the map"
-				title="Show on the map"
-				onclick={() => mapNav.focusPlace(place)}><LocateIcon /></Button
+				class="-mr-2"
+				onclick={() => directions.close()}
+				aria-label="Close directions"
+				title="Close"><XIcon /></Button
 			>
-			<DropdownMenu.Root>
-				<DropdownMenu.Trigger>
-					{#snippet child({ props })}
-						<Button {...props} variant="ghost" size="icon-sm" aria-label="Home options">
-							<EllipsisIcon />
-						</Button>
-					{/snippet}
-				</DropdownMenu.Trigger>
-				<DropdownMenu.Content align="end" class="w-48">
-					<DropdownMenu.Item onSelect={() => (editing = true)}>
-						<PencilIcon />Type a new address
-					</DropdownMenu.Item>
-					<DropdownMenu.Item onSelect={pickHome}>
-						<MapPinIcon />Pick on the map
-					</DropdownMenu.Item>
-					<DropdownMenu.Separator />
-					<DropdownMenu.Item variant="destructive" onSelect={() => setAddress(null)}>
-						<TrashIcon />Remove my home
-					</DropdownMenu.Item>
-				</DropdownMenu.Content>
-			</DropdownMenu.Root>
-		</div>
-		{#if home.pickingHome}
-			<div class="flex">{@render pickHomeButton()}</div>
-		{:else}
-			<Button size="sm" class="w-full" onclick={startDirections}>
-				<RouteIcon />Directions from home
-			</Button>
+		{:else if homePlace && !editing}
+			{@render homeMenu()}
 		{/if}
 	</div>
+
+	{#if directions.open}
+		{@render planner()}
+	{:else}
+		{#if homePlace && !editing}
+			{@render homeRow(homePlace)}
+		{/if}
+		{#if showForm}
+			{@render addressForm()}
+		{/if}
+	{/if}
+</section>
+
+{#snippet homeMenu()}
+	<DropdownMenu.Root>
+		<DropdownMenu.Trigger>
+			{#snippet child({ props })}
+				<Button {...props} variant="ghost" size="icon-sm" class="-mr-2" aria-label="Home options">
+					<EllipsisIcon />
+				</Button>
+			{/snippet}
+		</DropdownMenu.Trigger>
+		<DropdownMenu.Content align="end" class="w-48">
+			<DropdownMenu.Item onSelect={() => (editing = true)}>
+				<PencilIcon />Type a new address
+			</DropdownMenu.Item>
+			<DropdownMenu.Item onSelect={pickHome}>
+				<MapPinIcon />Pick on the map
+			</DropdownMenu.Item>
+			<DropdownMenu.Separator />
+			<DropdownMenu.Item variant="destructive" onSelect={() => setAddress(null)}>
+				<TrashIcon />Remove my home
+			</DropdownMenu.Item>
+		</DropdownMenu.Content>
+	</DropdownMenu.Root>
+{/snippet}
+
+{#snippet homeRow(place: Place)}
+	<button
+		type="button"
+		class="group flex items-center gap-3 rounded-lg px-3 py-1.5 text-left transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+		title="Show on the map"
+		aria-label="Show my home, {place.label}, on the map"
+		onclick={() => mapNav.focusPlace(place)}
+	>
+		<PlaceIcon kind="block" color={placeColor(place)} size={36} />
+		<span class="flex min-w-0 flex-1 flex-col">
+			<span class="truncate text-sm font-semibold">{place.label}</span>
+			<span class="truncate text-xs text-muted-foreground"
+				>{LEVELS[place.floor].code} · {LEVELS[place.floor].name}</span
+			>
+		</span>
+		<LocateIcon
+			class="size-4 shrink-0 text-muted-foreground opacity-60 transition-opacity group-hover:opacity-100"
+			aria-hidden="true"
+		/>
+	</button>
+	{#if home.pickingHome}
+		<div class="flex">{@render pickHomeButton()}</div>
+	{:else}
+		<Button size="sm" class="w-full" onclick={startDirections}>
+			<RouteIcon />Directions from home
+		</Button>
+	{/if}
 {/snippet}
 
 {#snippet pickHomeButton()}
@@ -185,144 +208,143 @@
 {/snippet}
 
 {#snippet addressForm()}
-	<div class="flex flex-col gap-2">
-		<form class="flex gap-1.5" onsubmit={submit}>
-			<Input
-				bind:value={text}
-				placeholder="Block, e.g. {example}"
-				aria-label="Home block"
-				aria-invalid={error ? true : undefined}
-				class="h-8"
-				oninput={() => (error = '')}
-			/>
-			<Button type="submit" size="sm" disabled={!text.trim()}>Set</Button>
-		</form>
-		{#if error}<p class="text-xs text-destructive">{error}</p>{/if}
-		<div class="flex gap-1.5">
-			{@render pickHomeButton()}
-			{#if homePlace}
-				<Button variant="outline" size="sm" onclick={stopEditing}>Cancel</Button>
-			{:else}
-				<Button variant="ghost" size="sm" onclick={startDirections}>
-					<RouteIcon />Directions
-				</Button>
-			{/if}
-		</div>
+	{#if !homePlace}
+		<p class="px-3 text-xs text-muted-foreground">
+			Save your block to get notices about it and directions from your door.
+		</p>
+	{/if}
+	<form class="flex gap-1.5" onsubmit={submit}>
+		<Input
+			bind:value={text}
+			placeholder="Block, e.g. {example}"
+			aria-label="Home block"
+			aria-invalid={error ? true : undefined}
+			class="h-8 bg-background"
+			oninput={() => (error = '')}
+		/>
+		<Button type="submit" size="sm" disabled={!text.trim()}>Set</Button>
+	</form>
+	{#if error}<p class="-mt-1 px-1 text-xs text-destructive">{error}</p>{/if}
+	<div class="flex gap-1.5">
+		{@render pickHomeButton()}
+		{#if homePlace}
+			<Button variant="ghost" size="sm" onclick={stopEditing}>Cancel</Button>
+		{:else}
+			<Button variant="ghost" size="sm" onclick={startDirections}>
+				<RouteIcon />Directions
+			</Button>
+		{/if}
 	</div>
 {/snippet}
 
 {#snippet planner()}
-	<div class="flex flex-col gap-2">
-		<div class="flex items-start gap-2">
-			<div class="flex flex-col items-center gap-1 pt-2.5" aria-hidden="true">
-				<span class="size-2.5 rounded-full border-2 border-foreground bg-sky-500"></span>
-				<span class="h-6 border-l-2 border-dotted border-muted-foreground"></span>
-				<span class="size-2.5 rounded-full bg-destructive"></span>
-			</div>
-			<div class="flex min-w-0 flex-1 flex-col gap-1.5">
-				{#each ENDS as { end, label } (end)}
-					{@const place = end === 'from' ? directions.fromPlace : directions.toPlace}
-					{@const picking = directions.picking === end}
-					<div class="relative flex gap-1">
-						<Input
-							class={cn('h-8', picking && 'border-primary')}
-							placeholder={picking ? 'Click a place on the map…' : label}
-							aria-label={label}
-							autocomplete="off"
-							value={field === end ? query : endLabel(place)}
-							onfocus={() => ((field = end), (query = ''))}
-							oninput={(e) => (query = e.currentTarget.value)}
-							onblur={() => setTimeout(() => field === end && (field = null), 150)}
-						/>
-						<Button
-							variant={picking ? 'default' : 'outline'}
-							size="icon-sm"
-							class="size-8 shrink-0"
-							aria-label="Choose the {label.toLowerCase()} on the map"
-							aria-pressed={picking}
-							title="Choose on the map"
-							onclick={() => {
-								directions.pick(end);
-								// Phones: picking needs the map, so close the drawer over it.
-								if (directions.picking) home.panelOpen = false;
-							}}><CrosshairIcon /></Button
-						>
-						{#if field === end}
-							{@render suggestions(end, place)}
-						{/if}
-					</div>
-				{/each}
-			</div>
-			<div class="flex flex-col gap-1">
-				<Button
-					variant="ghost"
-					size="icon-sm"
-					onclick={() => directions.close()}
-					aria-label="Close directions"
-					title="Close"><XIcon /></Button
-				>
-				<Button
-					variant="ghost"
-					size="icon-sm"
-					onclick={() => directions.swap()}
-					aria-label="Swap start and destination"
-					title="Swap"><ArrowUpDownIcon /></Button
-				>
-			</div>
+	<div class="flex items-stretch gap-2">
+		<div class="flex w-4 flex-col items-center py-3" aria-hidden="true">
+			<span class="size-2.5 shrink-0 rounded-full border-2 border-foreground bg-sky-500"></span>
+			<span class="my-1 w-0 flex-1 border-l-2 border-dotted border-muted-foreground/60"></span>
+			<span class="size-2.5 shrink-0 rounded-full bg-destructive"></span>
 		</div>
-
-		<div class="flex flex-wrap gap-x-4 gap-y-1 border-t pt-2 text-xs text-muted-foreground">
-			<label class="flex items-center gap-1.5">
-				<input type="checkbox" class="accent-primary" bind:checked={directions.permit} />
-				Directorate permit
-			</label>
-			<label class="flex items-center gap-1.5">
-				<input type="checkbox" class="accent-primary" bind:checked={directions.unregistered} />
-				Unmapped routes
-			</label>
-		</div>
-
-		{#if route}
-			<div class="rounded-md bg-muted/50 p-2.5">
-				<p class="text-base font-semibold">
-					<span class="text-emerald-500">{minutes(route.seconds)} min</span>
-					<span class="text-xs font-normal text-muted-foreground"
-						>· {km(route.walkMeters)} on foot{route.liftMeters
-							? ` · ${km(route.liftMeters)} by shaft`
-							: ''}</span
+		<div class="flex min-w-0 flex-1 flex-col gap-1.5">
+			{#each ENDS as { end, label } (end)}
+				{@const place = end === 'from' ? directions.fromPlace : directions.toPlace}
+				{@const picking = directions.picking === end}
+				<div class="relative flex gap-1">
+					<Input
+						class={cn('h-8 bg-background', picking && 'border-primary')}
+						placeholder={picking ? 'Click a place on the map…' : label}
+						aria-label={label}
+						autocomplete="off"
+						value={field === end ? query : endLabel(place)}
+						onfocus={() => ((field = end), (query = ''))}
+						oninput={(e) => (query = e.currentTarget.value)}
+						onblur={() => setTimeout(() => field === end && (field = null), 150)}
+					/>
+					<Button
+						variant={picking ? 'default' : 'ghost'}
+						size="icon-sm"
+						class="size-8 shrink-0"
+						aria-label="Choose the {label.toLowerCase()} on the map"
+						aria-pressed={picking}
+						title="Choose on the map"
+						onclick={() => {
+							directions.pick(end);
+							// Phones: picking needs the map, so close the drawer over it.
+							if (directions.picking) home.panelOpen = false;
+						}}><CrosshairIcon /></Button
 					>
-				</p>
-				<ol class="mt-2 flex flex-wrap items-center gap-1.5 text-xs" aria-label="Route levels">
-					{#each route.legs as leg, i (i)}
-						{@const shown = !home.overview && leg.floor === home.level}
-						<li>
-							<Button
-								variant={shown ? 'default' : 'secondary'}
-								size="xs"
-								class="rounded-full"
-								title="Show this part of the route"
-								onclick={() => mapNav.showRoute(leg.floor)}>{LEVELS[leg.floor].code}</Button
-							>
-						</li>
-						{#if route.rides[i]}
-							{@const ride = route.rides[i]}
-							<li class="text-muted-foreground" title="{SHAFTS[ride.shaft].status} shaft">
-								<span style="color:{SHAFT_COLORS[SHAFTS[ride.shaft].status]}"
-									>{ride.to > ride.from ? '▼' : '▲'}</span
-								>
-								{SHAFTS[ride.shaft].name}
-							</li>
-						{/if}
-					{/each}
-				</ol>
-			</div>
-		{:else if route === null}
-			<p class="rounded-md bg-muted/50 p-2.5 text-xs text-amber-500">
-				No route. Blocked tunnels cut every way there, or it needs a permit or an unmapped shaft;
-				try the options above.
-			</p>
-		{/if}
+					{#if field === end}
+						{@render suggestions(end, place)}
+					{/if}
+				</div>
+			{/each}
+		</div>
+		<Button
+			variant="ghost"
+			size="icon-sm"
+			class="self-center"
+			onclick={() => directions.swap()}
+			aria-label="Swap start and destination"
+			title="Swap"><ArrowUpDownIcon /></Button
+		>
 	</div>
+
+	<div class="flex flex-wrap gap-x-4 gap-y-1.5 px-3 text-xs text-muted-foreground">
+		<Label class="text-xs font-normal">
+			<Checkbox bind:checked={directions.permit} />
+			Directorate permit
+		</Label>
+		<Label class="text-xs font-normal">
+			<Checkbox bind:checked={directions.unregistered} />
+			Unmapped routes
+		</Label>
+	</div>
+
+	{#if route}
+		<div class="flex flex-col gap-2 border-t border-sidebar-border px-3 pt-3">
+			<p class="flex items-baseline gap-2">
+				<span class="text-2xl font-semibold tracking-tight text-emerald-500"
+					>{minutes(route.seconds)} min</span
+				>
+				<span class="text-xs text-muted-foreground"
+					>{km(route.walkMeters)} on foot{route.liftMeters
+						? ` · ${km(route.liftMeters)} by shaft`
+						: ''}</span
+				>
+			</p>
+			<ol class="flex flex-wrap items-center gap-1.5 text-xs" aria-label="Route levels">
+				{#each route.legs as leg, i (i)}
+					{@const shown = !home.overview && leg.floor === home.level}
+					<li>
+						<Button
+							variant={shown ? 'default' : 'secondary'}
+							size="xs"
+							class="rounded-full"
+							title="Show this part of the route"
+							onclick={() => mapNav.showRoute(leg.floor)}>{LEVELS[leg.floor].code}</Button
+						>
+					</li>
+					{#if route.rides[i]}
+						{@const ride = route.rides[i]}
+						<li class="text-muted-foreground" title="{SHAFTS[ride.shaft].status} shaft">
+							<span style="color:{SHAFT_COLORS[SHAFTS[ride.shaft].status]}"
+								>{ride.to > ride.from ? '▼' : '▲'}</span
+							>
+							{SHAFTS[ride.shaft].name}
+						</li>
+					{/if}
+				{/each}
+			</ol>
+		</div>
+	{:else if route === null}
+		<p
+			class="flex gap-2 border-t border-sidebar-border px-3 pt-3 text-xs text-amber-500"
+			role="status"
+		>
+			<TriangleAlertIcon class="mt-px size-3.5 shrink-0" />
+			No route. Blocked tunnels cut every way there, or it needs a permit or an unmapped shaft; try the
+			options above.
+		</p>
+	{/if}
 {/snippet}
 
 {#snippet suggestions(end: End, place: Place | null)}
