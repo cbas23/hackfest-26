@@ -176,7 +176,9 @@
 	/* Routes, hover/selection outlines and the radar sweep. */
 	--map-route: var(--primary);
 	--map-route-border: var(--foreground);
-	--map-route-dim: color-mix(in oklch, var(--muted-foreground) 80%, var(--background));
+	/* Tunnels while directions are open: a light, cool blue (it multiplies the usual tunnel
+	   colours), so the orange route stands out against them. */
+	--map-route-tunnels: oklch(0.9 0.07 240);
 	--map-highlight: var(--foreground);
 	--map-radar: var(--success);
 	/* Scene lighting: sky and ground of the hemisphere light. */

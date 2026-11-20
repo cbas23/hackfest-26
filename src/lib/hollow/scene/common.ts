@@ -30,7 +30,7 @@ export interface HollowMapHooks {
 	readonly map: TunnelMapView;
 	/** Whether the levels are stacked right now (flips while the veil is closed). */
 	isStacked(): boolean;
-	/** Dim every level's tunnels for contrast (e.g. under a route); a data lens overrides it. */
+	/** Tint every level's tunnels for contrast (directions, a route); a data lens overrides it. */
 	setTunnelDim(on: boolean): void;
 	/** A level's layer was just created. */
 	onLayer(fn: (level: number) => void): () => void;

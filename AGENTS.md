@@ -88,7 +88,7 @@ Layers, bottom to top:
      to recompute on changes; `mutate()` writes back (the Control center only).
 4. Main Map UI, in `src/lib/components/home/`:
    - `app-sidebar.svelte` (home address, directions + data-layer cards: power, water, air,
-     sickness, tunnels), `directions-panel.svelte` / `directions.svelte.ts` (route search
+     sickness, tunnels), `home-card.svelte` (home address + directions in one card) / `directions.svelte.ts` (route search
      between two places across levels; the map draws it with `routeOverlay`), `map-view.svelte` (3D map host and controls), `map-keys.ts` (keyboard control),
      `place-card.svelte` (selection details), `home-notices.svelte` (live notifications for the
      saved home: new, worse, better and cleared), `state-legend.svelte`, `sickness-scale.svelte`,

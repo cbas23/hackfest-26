@@ -221,6 +221,9 @@
 					}
 				: null
 		);
+		// Directions mode: blue tunnels as soon as the planner opens, not only once there is a
+		// route (the overlay above only tints them while it draws one).
+		scene.hooks.setTunnelDim(directions.open || !!route);
 	});
 
 	// When a new route appears, frame its first leg.

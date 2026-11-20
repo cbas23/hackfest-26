@@ -17,8 +17,7 @@
 	import { CONDITION_STEPS } from '#lib/hollow/conditions.js';
 	import StepScale from './step-scale.svelte';
 	import TunnelLegend from './tunnel-legend.svelte';
-	import HomeAddress from './home-address.svelte';
-	import DirectionsPanel from './directions-panel.svelte';
+	import HomeCard from './home-card.svelte';
 	import SicknessScale from './sickness-scale.svelte';
 	import { home, type LayerId } from './home-state.svelte.js';
 
@@ -136,8 +135,7 @@
 {/snippet}
 
 {#snippet panel()}
-	<HomeAddress />
-	<DirectionsPanel />
+	<HomeCard />
 
 	<section class="mx-3 mt-4 mb-5">
 		<h2 id="layers-heading" class="mb-2 px-3 text-xs font-medium text-muted-foreground">
@@ -215,7 +213,7 @@
 		>
 			<Sheet.Header class="border-b px-6 py-3">
 				<Sheet.Title class="text-sm">Map panel</Sheet.Title>
-				<Sheet.Description class="text-xs">Your home, directions and data layers</Sheet.Description>
+				<Sheet.Description class="text-xs">Your home and directions, data layers</Sheet.Description>
 			</Sheet.Header>
 			<ScrollArea class="min-h-0 flex-1 pb-[env(safe-area-inset-bottom)]">
 				{@render panel()}

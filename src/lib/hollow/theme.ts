@@ -36,7 +36,7 @@ export type Token =
 	| `map-tunnels-${'road' | 'wall' | 'room-roof' | 'room-wall' | 'blocked'}`
 	| 'map-route'
 	| 'map-route-border'
-	| 'map-route-dim'
+	| 'map-route-tunnels'
 	| 'map-highlight'
 	| 'map-radar'
 	| 'map-light-sky'

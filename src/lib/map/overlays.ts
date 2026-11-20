@@ -18,6 +18,8 @@ interface Base {
 	opacity?: number;
 	/** Ignore depth: draw over everything. */
 	onTop?: boolean;
+	/** Fade into the scene's distance fog (default true); false keeps full colour far away. */
+	fog?: boolean;
 }
 
 export interface Rect {
@@ -107,13 +109,14 @@ const DEFAULT_ORDER: Record<OverlaySpec['type'], number> = {
 	object: 0
 };
 
-function basic(opacity: number, onTop: boolean) {
+function basic(opacity: number, onTop: boolean, fog: boolean) {
 	return new THREE.MeshBasicMaterial({
 		vertexColors: true,
 		transparent: opacity < 1 || onTop,
 		opacity,
 		depthTest: !onTop,
-		depthWrite: false
+		depthWrite: false,
+		fog
 	});
 }
 
@@ -267,9 +270,10 @@ function draw(root: THREE.Group, s: OverlaySpec, space: Space) {
 	disposeTree(root);
 	root.clear();
 	let mesh: THREE.Mesh;
-	if (s.type === 'path') mesh = new THREE.Mesh(pathGeometry(s, space), basic(opacity, !!s.onTop));
+	if (s.type === 'path')
+		mesh = new THREE.Mesh(pathGeometry(s, space), basic(opacity, !!s.onTop, s.fog ?? true));
 	else if (s.type === 'rects')
-		mesh = new THREE.Mesh(rectsGeometry(s, space), basic(opacity, !!s.onTop));
+		mesh = new THREE.Mesh(rectsGeometry(s, space), basic(opacity, !!s.onTop, s.fog ?? true));
 	else {
 		const transparent = opacity < 1 || !!s.onTop;
 		const params = {
@@ -278,7 +282,8 @@ function draw(root: THREE.Group, s: OverlaySpec, space: Space) {
 			opacity,
 			depthTest: !s.onTop,
 			depthWrite: s.depthWrite ?? !transparent,
-			side: s.backSide ? THREE.BackSide : THREE.FrontSide
+			side: s.backSide ? THREE.BackSide : THREE.FrontSide,
+			fog: s.fog ?? true
 		};
 		const mat =
 			(s.lit ?? true) ? new THREE.MeshLambertMaterial(params) : new THREE.MeshBasicMaterial(params);

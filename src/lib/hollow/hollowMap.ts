@@ -143,10 +143,10 @@ export function createHollowMap(container: HTMLElement, opts: HollowMapOptions):
 
 	// ── Floors and their styles ─────────────────────────────────────────────
 	let lens: MapLens | null = null;
-	/** Set by add-ons (the route) that want the tunnels dimmed for contrast. */
+	/** Set by add-ons and the directions mode, which tint the tunnels blue for contrast. */
 	let tunnelDim = false;
 	// A lens already draws its tunnels near-black (see floorStyle), so it needs no tint.
-	const tunnelTint = () => (!lens && tunnelDim ? tokenHex('map-route-dim') : null);
+	const tunnelTint = () => (!lens && tunnelDim ? tokenHex('map-route-tunnels') : null);
 	/** Bumped on every theme change, so each layer knows its colours are stale. */
 	let themeVersion = 0;
 	/** Bumped when the lens's data changes, so layers repaint with the same lens. */
