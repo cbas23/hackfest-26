@@ -10,7 +10,7 @@
 **The real pages are the Main Map (`/`, `src/routes/+page.svelte`) and the Control center
 (`/control`), which edits the map's live events. Nothing else is real unless the user states otherwise.**
 
-- `/tunnel-gen` (Tunnel generator, hidden from the nav but reachable by URL) is **scratch work**
+- `/tunnel-gen` (Tunnel generator, reachable by URL only) is **scratch work**
   for prototyping features and logic.
 - Product work goes into the Main Map (`src/lib/components/home/*`, `#lib/hollow`, `#lib/map`).
   If a feature from a scratch page is wanted, move it into the Main Map. Don't build it up on the
@@ -105,7 +105,7 @@ Layers, bottom to top:
    document), `model.ts` (validators and checks), `points.ts` / `blockedTunnels.ts` (`list`,
    `add`, `update`, `remove`), `sickness.ts` (`get`, `set`) and `scenario.ts` (`load`,
    `clearMap`).
-7. App shell: `src/routes/+layout.svelte` (`SiteNav` + full-height content). The map routes use
+7. App shell: `src/routes/+layout.svelte` (`SiteNav`, a title-only header with no links; the Map is the default page and `/control` is reachable by URL only, + full-height content). The map routes use
    `ssr = false`.
 
 Scratch-only modules: `#lib/intel` (fictional reports, vocabulary, history; not used by a page
