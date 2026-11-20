@@ -39,8 +39,8 @@
 	}
 </script>
 
-<section class="mx-3 mb-5" aria-labelledby="report-heading">
-	<h2 id="report-heading" class="mb-2 px-3 text-xs font-medium text-muted-foreground">Report</h2>
+<section class="px-4 pt-4 pb-5" aria-labelledby="report-heading">
+	<h2 id="report-heading" class="mb-2 text-xs font-medium text-muted-foreground">Report</h2>
 	<Button
 		size="sm"
 		class="w-full"
@@ -49,7 +49,7 @@
 	>
 		<MegaphoneIcon />Send a report
 	</Button>
-	<div class="px-3 text-xs" role="status" aria-live="polite">
+	<div class="text-xs" role="status" aria-live="polite">
 		{#if report.status === 'working'}
 			<p class="mt-3 flex items-center gap-2 text-muted-foreground" transition:fade>
 				<LoaderIcon class="size-4 shrink-0 animate-spin" aria-hidden="true" />Reviewing report…

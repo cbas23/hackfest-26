@@ -5,7 +5,6 @@
 	import { routeOverlay, type RouteDraw } from '#lib/hollow/scene/route.js';
 	import { directions } from './directions.svelte.js';
 	import RouteIcon from '@lucide/svelte/icons/route';
-	import SirenIcon from '@lucide/svelte/icons/siren';
 	import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
 	import EscapeHud from './escape-hud.svelte';
 	import { formatCount, formatDepth, formatPercent } from '#lib/hollow/format.js';
@@ -793,17 +792,9 @@
 			{/each}
 		</div>
 
-		<!-- Alarm glow while the home is in danger; a green flash on reaching safety. -->
+		<!-- A green flash on reaching safety. -->
 		{#if arrived}
 			<div class="safe-flash pointer-events-none absolute inset-0 z-[5]" aria-hidden="true"></div>
-		{:else if directions.danger.length}
-			<div
-				class={cn(
-					'alarm pointer-events-none absolute inset-0 z-[5]',
-					directions.escaping && 'opacity-50'
-				)}
-				aria-hidden="true"
-			></div>
 		{/if}
 
 		{#if directions.escaping}
@@ -812,20 +803,6 @@
 				status={playStatus}
 				{arrived}
 			/>
-		{:else if directions.danger.length && !home.pickingHome && !directions.picking}
-			<button
-				class="get-out absolute bottom-6 left-1/2 z-30 flex -translate-x-1/2 items-center gap-3 rounded-full border-2 border-white/30 bg-destructive py-2.5 pr-6 pl-3 text-white shadow-2xl transition-transform outline-none hover:scale-105 focus-visible:ring-2 focus-visible:ring-ring active:scale-95"
-				onclick={() => directions.escape()}
-			>
-				<span class="relative grid size-9 place-items-center rounded-full bg-white/20">
-					<span class="absolute inset-0 animate-ping rounded-full bg-white/30"></span>
-					<SirenIcon class="relative size-5" />
-				</span>
-				<span class="flex flex-col text-left leading-tight">
-					<span class="text-base font-extrabold tracking-wider uppercase">Get to safety</span>
-					<span class="text-xs opacity-90">{directions.danger[0].title}</span>
-				</span>
-			</button>
 		{/if}
 
 		{#if directions.picking}
@@ -995,16 +972,6 @@
 </div>
 
 <style>
-	/* A red glow breathing in from the map's edges while the home is in danger. */
-	.alarm {
-		box-shadow: inset 0 0 90px 10px color-mix(in oklch, var(--destructive) 55%, transparent);
-		animation: alarm 1.6s ease-in-out infinite;
-	}
-	@keyframes alarm {
-		50% {
-			box-shadow: inset 0 0 40px 0 color-mix(in oklch, var(--destructive) 20%, transparent);
-		}
-	}
 	/* One green flash when the escape route reaches the safe block. */
 	.safe-flash {
 		animation: safe-flash 2.6s ease-out both;
@@ -1021,22 +988,7 @@
 			box-shadow: inset 0 0 0 0 transparent;
 		}
 	}
-	/* The "Get to safety" button throbs to draw the eye. */
-	.get-out {
-		animation: get-out 1.6s ease-in-out infinite;
-	}
-	@keyframes get-out {
-		0%,
-		100% {
-			box-shadow: 0 0 0 0 color-mix(in oklch, var(--destructive) 70%, transparent);
-		}
-		50% {
-			box-shadow: 0 0 0 14px transparent;
-		}
-	}
 	@media (prefers-reduced-motion: reduce) {
-		.alarm,
-		.get-out,
 		.safe-flash {
 			animation: none;
 		}

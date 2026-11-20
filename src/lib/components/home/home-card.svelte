@@ -22,7 +22,6 @@
 	import { directions, searchPlaces, type End } from './directions.svelte.js';
 	import { home, mapNav, setAddress } from './home-state.svelte.js';
 	import PlaceIcon from './place-icon.svelte';
-	import SafetyRing from './safety-ring.svelte';
 
 	/**
 	 * The viewer's home and directions in one sidebar section. It grows with the task: an address form while
@@ -109,10 +108,10 @@
 </script>
 
 <section
-	class="flex flex-col gap-3 border-b border-sidebar-border px-3 pt-4 pb-5"
+	class="flex flex-col gap-3 border-b border-sidebar-border px-4 pt-4 pb-5"
 	aria-labelledby="home-heading"
 >
-	<div class="flex h-7 items-center justify-between gap-2 px-3">
+	<div class="flex h-7 items-center justify-between gap-2">
 		<h2 id="home-heading" class="text-xs font-medium text-muted-foreground">
 			{directions.open ? 'Directions' : 'Your home'}
 		</h2>
@@ -169,7 +168,7 @@
 {#snippet homeRow(place: Place)}
 	<button
 		type="button"
-		class="group flex items-center gap-3 rounded-lg px-3 py-1.5 text-left transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+		class="group -mx-2 flex items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
 		title="Show on the map"
 		aria-label="Show my home, {place.label}, on the map"
 		onclick={() => mapNav.focusPlace(place)}
@@ -186,7 +185,6 @@
 			aria-hidden="true"
 		/>
 	</button>
-	<SafetyRing {place} />
 	{#if home.pickingHome}
 		<div class="flex">{@render pickHomeButton()}</div>
 	{:else}
@@ -211,7 +209,7 @@
 
 {#snippet addressForm()}
 	{#if !homePlace}
-		<p class="px-3 text-xs text-muted-foreground">
+		<p class="text-xs text-muted-foreground">
 			Save your block to get notices about it and directions from your door.
 		</p>
 	{/if}
@@ -226,7 +224,7 @@
 		/>
 		<Button type="submit" size="sm" disabled={!text.trim()}>Set</Button>
 	</form>
-	{#if error}<p class="-mt-1 px-1 text-xs text-destructive">{error}</p>{/if}
+	{#if error}<p class="-mt-1 text-xs text-destructive">{error}</p>{/if}
 	<div class="flex gap-1.5">
 		{@render pickHomeButton()}
 		{#if homePlace}
@@ -290,7 +288,7 @@
 		>
 	</div>
 
-	<div class="flex flex-wrap gap-x-4 gap-y-1.5 px-3 text-xs text-muted-foreground">
+	<div class="flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
 		<Label class="text-xs font-normal">
 			<Checkbox bind:checked={directions.permit} />
 			Directorate permit
@@ -302,7 +300,7 @@
 	</div>
 
 	{#if route}
-		<div class="flex flex-col gap-2 border-t border-sidebar-border px-3 pt-3">
+		<div class="flex flex-col gap-2 border-t border-sidebar-border pt-3">
 			<p class="flex items-baseline gap-2">
 				<span class="text-2xl font-semibold tracking-tight text-emerald-500"
 					>{minutes(route.seconds)} min</span
@@ -338,10 +336,7 @@
 			</ol>
 		</div>
 	{:else if route === null}
-		<p
-			class="flex gap-2 border-t border-sidebar-border px-3 pt-3 text-xs text-amber-500"
-			role="status"
-		>
+		<p class="flex gap-2 border-t border-sidebar-border pt-3 text-xs text-amber-500" role="status">
 			<TriangleAlertIcon class="mt-px size-3.5 shrink-0" />
 			No route. Blocked tunnels cut every way there, or it needs a permit or an unmapped shaft; try the
 			options above.

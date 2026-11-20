@@ -18,7 +18,8 @@
 	import StepScale from './step-scale.svelte';
 	import TunnelLegend from './tunnel-legend.svelte';
 	import HomeCard from './home-card.svelte';
-	import EscapeButton from './escape-button.svelte';
+	import HomeSafety from './home-safety.svelte';
+	import { placeByKey } from './address.js';
 	import ReportCard from './report-card.svelte';
 	import SicknessScale from './sickness-scale.svelte';
 	import { home, type LayerId } from './home-state.svelte.js';
@@ -81,6 +82,7 @@
 
 	/** Wide screens keep the sidebar beside the map; phones get it as a drawer over the map. */
 	const wide = new MediaQuery('min-width: 48rem');
+	const homePlace = $derived(placeByKey(home.address));
 	let drawer = $state<HTMLElement | null>(null);
 </script>
 
@@ -138,12 +140,13 @@
 
 {#snippet panel()}
 	<HomeCard />
-	<EscapeButton />
 
-	<section class="mx-3 mt-4 mb-5">
-		<h2 id="layers-heading" class="mb-2 px-3 text-xs font-medium text-muted-foreground">
-			Information
-		</h2>
+	{#if homePlace}
+		<HomeSafety place={homePlace} />
+	{/if}
+
+	<section class="border-b border-sidebar-border px-4 pt-4 pb-5">
+		<h2 id="layers-heading" class="mb-2 text-xs font-medium text-muted-foreground">Information</h2>
 		<Accordion.Root
 			type="single"
 			bind:value={() => home.section, (v) => (home.section = v as LayerId | '')}
