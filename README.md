@@ -3,7 +3,7 @@
 A hackathon project (Hackfest '26) set in **the Hollow**: a fictional underground city seven levels
 deep beneath the dead cities above. Air, light and water are metered down from the top, and things
 get worse the deeper you go. The app is a civic dashboard for it: a live 3D map of every level, its
-facilities, simulated sensor readings, infrastructure impact, and lung-sickness hotspots.
+facilities, simulated sensor readings, infrastructure impact, and lung-sickness outbreaks.
 
 > All data in this project (reports, history, sensors, sickness, residents) is
 > **fictional and simulated**. Nothing is measured.
@@ -91,7 +91,7 @@ scripts/                        bake-hollow.ts, validate-intel.ts
    - `nav.ts`: places on a floor and route finding across floors and shafts.
    - `sensors.ts`: simulated facility readings, with status from fixed thresholds (Detect).
    - `impact.ts`: which neighborhoods and residents lose service when a facility fails (Assess).
-   - `sickness.ts`: deterministic lung-sickness hotspots per habitation block.
+   - `sickness.ts`: lung-sickness reports per habitation block, from outbreak points.
    - `mapStyle.ts`, `theme.ts`: block heights and palettes; the map's colours come from CSS
      variables in `layout.css`, so the 3D map matches the UI theme.
    - `hollowMap.ts`: `createHollowMap` wraps `#lib/map` with Hollow features: level changes,

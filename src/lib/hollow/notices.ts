@@ -14,7 +14,7 @@ import { formatCount, formatPercent } from './format.js';
 import type { Place } from './nav.js';
 import { sickStep } from './sickness.js';
 import type { FloorSimulation } from './simulation.js';
-import type { PointKind } from './state.js';
+import type { PointKind, SourceKind } from './state.js';
 import { STATUS_INFO, type Status } from './status.js';
 
 export type NoticeKind = PointKind | 'sickness';
@@ -61,6 +61,13 @@ const stepSeverity = (
 ): Exclude<Status, 'normal'> | null =>
 	step >= bad[2] ? 'critical' : step >= bad[1] ? 'high' : step >= bad[0] ? 'warning' : null;
 
+/** The note of the strongest point of `kind` that reaches block `id` and has one. */
+const noteFor = (sim: FloorSimulation, kind: SourceKind, id: number) =>
+	sim
+		.areas(kind)
+		.filter((a) => a.point.note && a.blocks.includes(id))
+		.sort((a, b) => (b.point.strength ?? 1) - (a.point.strength ?? 1))[0]?.point.note;
+
 /** The notices for a home block, worst first. `sim` must be the block's floor. */
 export function homeNotices(sim: FloorSimulation, home: Place): HomeNotice[] {
 	const id = home.room.id;
@@ -72,9 +79,7 @@ export function homeNotices(sim: FloorSimulation, home: Place): HomeNotice[] {
 		const step = conditionStep(score);
 		const severity = stepSeverity(step, [2, 3, 4]);
 		if (!severity) continue;
-		const note = sim.conditions.areas
-			.filter((a) => a.point.kind === kind && a.point.note && a.blocks.includes(id))
-			.sort((a, b) => (b.point.strength ?? 1) - (a.point.strength ?? 1))[0]?.point.note;
+		const note = noteFor(sim, kind, id);
 		const label = CONDITION_STEPS[kind][step].label.toLowerCase();
 		out.push({
 			id: `${kind}:${severity}`,
@@ -87,14 +92,16 @@ export function homeNotices(sim: FloorSimulation, home: Place): HomeNotice[] {
 
 	const sick = sim.sickness[id];
 	const sSeverity = sick ? stepSeverity(sickStep(sick.score), [2, 3, 4]) : null;
-	if (sick && sSeverity)
+	if (sick && sSeverity) {
+		const note = noteFor(sim, 'sickness', id);
 		out.push({
 			id: `sickness:${sSeverity}`,
 			kind: 'sickness',
 			severity: sSeverity,
 			title: sSeverity === 'warning' ? 'Lung sickness nearby' : 'Lung sickness outbreak',
-			detail: `${formatPercent(sick.score)} of ${formatCount(sick.reported)} health reports from your block are lung sickness. Wear a mask outside.`
+			detail: `${formatPercent(sick.score)} of ${formatCount(sick.reported)} health reports from your block are lung sickness.${note ? ` ${note}` : ''} Wear a mask outside.`
 		});
+	}
 
 	return out.sort((a, b) => rank(b.severity) - rank(a.severity));
 }

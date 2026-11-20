@@ -4,20 +4,26 @@
  *
  * - The city (`getHollow()`): tunnels, rooms, facilities and residents, built in the browser
  *   from `HOLLOW_SEED`. It never changes.
- * - The state (`currentState()`): power, water and air points, blocked tunnels and the
- *   sickness settings. It lives in Convex and changes over time; `#lib/live` keeps it here
+ * - The state (`currentState()`): power, water and air points, lung-sickness outbreaks and
+ *   blocked tunnels. It lives in Convex and changes over time; `#lib/live` keeps it here
  *   with `setState`. Pages that never connect get the starter scenario (read-only).
  * - The models turn the two into what pages show: `conditions.ts` (power, water and air per
- *   block, graded from the points) and `sickness.ts` (lung-sickness reports per block).
+ *   block, graded from the points) and `sickness.ts` (lung-sickness reports per block, from
+ *   the outbreaks).
  *
  * Pages read the data through `simulateFloor()`; `snapshot()` dumps it as plain data.
  */
-import { conditionsOn, conditionTotals, type FloorConditions } from './conditions.js';
+import {
+	conditionsOn,
+	conditionTotals,
+	type FloorConditions,
+	type PointArea
+} from './conditions.js';
 import { HOLLOW_SEED, LEVELS } from './data.js';
 import { placesOn, type Place } from './nav.js';
 import { starterScenario, withLocalIds } from './scenario.js';
-import { sicknessOf, sicknessTotals as totals, type BlockSickness } from './sickness.js';
-import type { BlockedTunnel, HollowState, PointKind, StatePoint } from './state.js';
+import { sicknessOn, sicknessTotals as totals, type BlockSickness } from './sickness.js';
+import type { BlockedTunnel, HollowState, PointKind, SourceKind, StatePoint } from './state.js';
 import { createHollow, perFloorWith, type Floor, type Hollow } from './world.js';
 
 export { SIM, streamSeed, type SimStream } from './simConfig.js';
@@ -53,6 +59,8 @@ export interface FloorSimulation {
 	score(kind: PointKind): (number | null)[];
 	/** Room id → lung-sickness reports (null for rooms that aren't housing). */
 	readonly sickness: (BlockSickness | null)[];
+	/** This floor's points of one kind (outbreaks for sickness), with the blocks each reaches. */
+	areas(kind: SourceKind): PointArea[];
 	/** Tunnel tiles blocked on this floor ("x,y"). */
 	readonly blocked: Set<string>;
 }
@@ -87,8 +95,12 @@ const simulate = perFloorWith((floor: Floor, state: HollowState): FloorSimulatio
 		},
 		score: (kind) => conditions().score[kind],
 		get sickness() {
-			return sicknessOf(floor, state.sickness);
+			return sicknessOn(floor, state.points).blocks;
 		},
+		areas: (kind) =>
+			kind === 'sickness'
+				? sicknessOn(floor, state.points).areas
+				: conditions().areas.filter((a) => a.point.kind === kind),
 		get blocked() {
 			return blocked();
 		}

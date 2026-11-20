@@ -13,7 +13,6 @@ import type { FunctionArgs, FunctionReference } from 'convex/server';
 import { PUBLIC_CONVEX_URL } from '$app/env/public';
 import { api } from '#convex/_generated/api.js';
 import type { HollowState } from '#lib/hollow/state.js';
-import { DEFAULT_SICKNESS } from '#lib/hollow/sickness.js';
 import { currentState, setState } from '#lib/hollow/simulation.js';
 
 export type LiveStatus = 'idle' | 'connecting' | 'live' | 'offline';
@@ -27,7 +26,7 @@ export const live = $state({
 });
 
 let client: ConvexClient | null = null;
-let state: HollowState = { points: [], blockedTunnels: [], sickness: DEFAULT_SICKNESS };
+let state: HollowState = { points: [], blockedTunnels: [] };
 
 function apply(patch: Partial<HollowState>) {
 	state = { ...state, ...patch };
@@ -61,7 +60,7 @@ export function connectLive() {
 	setState(state);
 	client = new ConvexClient(url);
 	// Live once every table has sent its first result.
-	let pending = ['points', 'blockedTunnels', 'sickness'];
+	let pending = ['points', 'blockedTunnels'];
 	const loaded = (key: string) => {
 		pending = pending.filter((k) => k !== key);
 		if (!pending.length) live.status = 'live';
@@ -81,20 +80,6 @@ export function connectLive() {
 		(docs) => {
 			apply({ blockedTunnels: docs.map(fromDoc) });
 			loaded('blockedTunnels');
-		},
-		onError
-	);
-	client.onUpdate(
-		api.sickness.get,
-		{},
-		(doc) => {
-			// Only the settings' own fields: they go back to `sickness.set` as they are.
-			const { seed, hotspots, hotspotsDrop, spread, intensity, background, depthFalloff } =
-				doc ?? DEFAULT_SICKNESS;
-			apply({
-				sickness: { seed, hotspots, hotspotsDrop, spread, intensity, background, depthFalloff }
-			});
-			loaded('sickness');
 		},
 		onError
 	);

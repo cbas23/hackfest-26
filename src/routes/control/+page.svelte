@@ -6,7 +6,7 @@
 	import HeartPulseIcon from '@lucide/svelte/icons/heart-pulse';
 	import DatabaseIcon from '@lucide/svelte/icons/database';
 	import { LEVELS } from '#lib/hollow/data.js';
-	import { POINT_KINDS, type PointKind } from '#lib/hollow/state.js';
+	import { SOURCE_KINDS, type SourceKind } from '#lib/hollow/state.js';
 	import { currentState } from '#lib/hollow/simulation.js';
 	import { connectLive, live } from '#lib/live/state.svelte.js';
 	import { Button } from '#lib/components/ui/button/index.js';
@@ -16,7 +16,6 @@
 	import FloorCanvas from '#lib/components/control/floor-canvas.svelte';
 	import PointPanel from '#lib/components/control/point-panel.svelte';
 	import TunnelPanel from '#lib/components/control/tunnel-panel.svelte';
-	import SicknessPanel from '#lib/components/control/sickness-panel.svelte';
 	import {
 		clearMap,
 		control,
@@ -30,8 +29,8 @@
 		{ value: 'power', label: 'Power', icon: ZapOffIcon },
 		{ value: 'water', label: 'Water', icon: DropletsIcon },
 		{ value: 'air', label: 'Air', icon: FanIcon },
-		{ value: 'tunnels', label: 'Tunnels', icon: ConstructionIcon },
-		{ value: 'sickness', label: 'Sickness', icon: HeartPulseIcon }
+		{ value: 'sickness', label: 'Sickness', icon: HeartPulseIcon },
+		{ value: 'tunnels', label: 'Tunnels', icon: ConstructionIcon }
 	];
 
 	const state = $derived.by(() => {
@@ -41,7 +40,7 @@
 	/** Points of a kind, and blocked tunnels, optionally on one level. */
 	const on = (list: { level: number }[], level?: number) =>
 		level === undefined ? list.length : list.filter((e) => e.level === level).length;
-	const pointsOf = (kind: PointKind) => state.points.filter((p) => p.kind === kind);
+	const pointsOf = (kind: SourceKind) => state.points.filter((p) => p.kind === kind);
 	const countOnLevel = (level: number) => on(state.points, level) + on(state.blockedTunnels, level);
 	const total = $derived(state.points.length + state.blockedTunnels.length);
 	const empty = $derived(live.status === 'live' && total === 0);
@@ -57,14 +56,14 @@
 	function confirmLoad() {
 		if (
 			empty ||
-			confirm(
-				'Replace every point, blocked tunnel and the sickness settings with the starter scenario?'
-			)
+			confirm('Replace every point, outbreak and blocked tunnel with the starter scenario?')
 		)
 			void loadStarterScenario();
 	}
 	function confirmClear() {
-		if (confirm('Delete every power, water and air point and every blocked tunnel?'))
+		if (
+			confirm('Delete every power, water and air point, every outbreak and every blocked tunnel?')
+		)
 			void clearMap();
 	}
 </script>
@@ -116,7 +115,8 @@
 			>
 				<span class="font-semibold text-foreground">{level.code} {level.name}</span>
 				<span class="text-muted-foreground">
-					{#each POINT_KINDS as k (k)}{on(pointsOf(k), level.index)} {k} ·
+					{#each SOURCE_KINDS as k (k)}{on(pointsOf(k), level.index)}
+						{k === 'sickness' ? 'outbreaks' : k} ·
 					{/each}{on(state.blockedTunnels, level.index)} tunnels
 				</span>
 			</div>
@@ -190,11 +190,10 @@
 					</Tabs.Trigger>
 				{/each}
 			</Tabs.List>
-			{#each POINT_KINDS as k (k)}
+			{#each SOURCE_KINDS as k (k)}
 				<Tabs.Content value={k}><PointPanel kind={k} /></Tabs.Content>
 			{/each}
 			<Tabs.Content value="tunnels"><TunnelPanel /></Tabs.Content>
-			<Tabs.Content value="sickness"><SicknessPanel /></Tabs.Content>
 		</Tabs.Root>
 	</aside>
 </main>

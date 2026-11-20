@@ -2,7 +2,7 @@
 	import { flip } from 'svelte/animate';
 	import { backOut, cubicIn } from 'svelte/easing';
 	import { prefersReducedMotion } from 'svelte/motion';
-	import { scale, type TransitionConfig } from 'svelte/transition';
+	import type { TransitionConfig } from 'svelte/transition';
 	import * as Alert from '#lib/components/ui/alert/index.js';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import { untrack } from 'svelte';
@@ -175,25 +175,20 @@
 		<!-- A new address replays the whole stack. -->
 		{#key home.address}
 			{#if hidden && !shown.length}
-				<div in:scale|global={{ start: 0.6, duration: motion(260), easing: backOut }}>
+				<div>
 					<Button
 						variant="outline"
 						size="sm"
-						class="pointer-events-auto relative bg-background/90 backdrop-blur"
+						class="pointer-events-auto bg-background/90 backdrop-blur transition-none"
 						aria-label="Show {hidden} notification{hidden === 1 ? '' : 's'} for your home"
 						onclick={() => dismissed.clear()}
 					>
-						<BellIcon class="notice-ring" />
+						<BellIcon />
 						Your home
-						<span class="relative grid">
-							<span
-								class="absolute inset-0 animate-ping rounded-full bg-destructive opacity-60 motion-reduce:hidden"
-							></span>
-							<span
-								class="relative grid min-w-4 place-items-center rounded-full bg-destructive px-1 text-[10px] leading-4 font-semibold text-white tabular-nums"
-								>{hidden}</span
-							>
-						</span>
+						<span
+							class="grid min-w-4 place-items-center rounded-full bg-destructive px-1 text-[10px] leading-4 font-semibold text-white tabular-nums"
+							>{hidden}</span
+						>
 					</Button>
 				</div>
 			{/if}
@@ -338,10 +333,6 @@
 			notice-pop 420ms 300ms cubic-bezier(0.34, 1.56, 0.64, 1) both,
 			notice-pulse 1.8s 900ms ease-in-out infinite;
 	}
-	:global(.notice-ring) {
-		transform-origin: 50% 10%;
-		animation: notice-ring 900ms 200ms ease-in-out;
-	}
 	/* A card whose notice just changed flashes its outline. */
 	:global(.notice-changed) {
 		animation: notice-flash 1.2s ease-out;
@@ -374,21 +365,10 @@
 			filter: drop-shadow(0 0 4px var(--notice));
 		}
 	}
-	@keyframes notice-ring {
-		20%,
-		60% {
-			transform: rotate(14deg);
-		}
-		40%,
-		80% {
-			transform: rotate(-14deg);
-		}
-	}
 	@media (prefers-reduced-motion: reduce) {
 		:global(.notice)::after,
 		:global(.notice-icon),
 		:global(.notice-urgent .notice-icon),
-		:global(.notice-ring),
 		:global(.notice-changed),
 		:global(.notice-badge) {
 			animation: none;

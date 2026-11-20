@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { CONDITION_STEPS } from '#lib/hollow/conditions.js';
-	import { POINT_INFO, POINT_RADIUS, POINT_STRENGTH, type PointKind } from '#lib/hollow/state.js';
+	import { POINT_INFO, POINT_RADIUS, POINT_STRENGTH, type SourceKind } from '#lib/hollow/state.js';
+	import { SICK_STEPS } from '#lib/hollow/sickness.js';
 	import { formatCompact, formatPercent } from '#lib/hollow/format.js';
 	import { getHollow, simulateFloor } from '#lib/hollow/simulation.js';
 	import { live } from '#lib/live/state.svelte.js';
@@ -9,7 +10,7 @@
 	import StateRow from './state-row.svelte';
 	import { control, removePoint, updatePoint } from './control-state.svelte.js';
 
-	let { kind }: { kind: PointKind } = $props();
+	let { kind }: { kind: SourceKind } = $props();
 
 	const hollow = getHollow();
 	const info = $derived(POINT_INFO[kind]);
@@ -18,14 +19,15 @@
 		void live.version;
 		return simulateFloor(hollow.floor(control.level));
 	});
+	const steps = $derived(
+		kind === 'sickness' ? SICK_STEPS.map((s) => ({ ...s, label: s.range })) : CONDITION_STEPS[kind]
+	);
 	/** This kind's points on the level, with the blocks and residents they reach. */
 	const rows = $derived(
-		sim.conditions.areas
-			.filter((a) => a.point.kind === kind)
-			.map((a) => ({
-				...a,
-				residents: a.blocks.reduce((s, b) => s + sim.floor.residents[b], 0)
-			}))
+		sim.areas(kind).map((a) => ({
+			...a,
+			residents: a.blocks.reduce((s, b) => s + sim.floor.residents[b], 0)
+		}))
 	);
 	/** Values being dragged on an existing point, before they're saved. */
 	const dragging = $state<Record<string, { radius?: number; strength?: number }>>({});
@@ -59,14 +61,16 @@
 
 <div class="flex flex-col gap-3 text-xs">
 	<p class="text-muted-foreground">
-		Click the map to place a {info.point.toLowerCase()}. It pushes the blocks it reaches towards
-		bad, strongest at the point and fading out
+		Click the map to place {kind === 'sickness' ? 'an' : 'a'}
+		{info.point.toLowerCase()}. {kind === 'sickness'
+			? 'It makes residents of the blocks it reaches report lung sickness,'
+			: 'It pushes the blocks it reaches towards bad,'} strongest at the point and fading out
 		{info.spread === 'tunnels'
 			? 'along the tunnels, so it only reaches what its tunnels connect.'
 			: 'over the area around it.'}
 		Overlapping points compound.
 	</p>
-	<StepScale steps={CONDITION_STEPS[kind]} />
+	<StepScale {steps} />
 	{@render dial(
 		`New point: ${reachLabel.toLowerCase()}`,
 		control.radius,
@@ -127,7 +131,7 @@
 		</ul>
 	{:else}
 		<p class="rounded-md border border-dashed p-3 text-center text-muted-foreground">
-			No {info.point.toLowerCase()} points on this level.
+			No {kind === 'sickness' ? 'outbreaks' : `${info.point.toLowerCase()} points`} on this level.
 		</p>
 	{/if}
 </div>

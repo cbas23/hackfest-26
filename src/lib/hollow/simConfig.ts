@@ -47,20 +47,10 @@ export const SIM = {
 	},
 
 	/**
-	 * Lung-sickness reports (`sickness.ts`). Where the hotspots are and how strong they are is
-	 * set by the shared `SicknessSettings` (Convex, edited in the control center); these are
-	 * the fixed parts of the model. "Per level down" compounds from L1.
+	 * Lung-sickness reports (`sickness.ts`). How sick a block is comes from the outbreak points
+	 * (`SIM.conditions.sickness`); this is the share of its residents who file a health report.
 	 */
 	sickness: {
-		/** Background decays faster with depth than the hotspots: falloff ^ (level × this). */
-		backgroundDepthPower: Math.log(0.75) / Math.log(0.82),
-		/** Hotspot radius in tiles and peak sick share, before scaling by reach and the settings. */
-		radius: { min: 8, span: 18 } satisfies Spread,
-		peak: { min: 0.8, span: 0.3 } satisfies Spread,
-		/** Chance (on L1) of an isolated sick block outside any hotspot, and its score. */
-		stray: 0.03,
-		strayScore: { min: 0.3, span: 0.4 } satisfies Spread,
-		/** Share of a block's residents who file a health report. */
 		reportShare: { min: 0.04, span: 0.16 } satisfies Spread
 	},
 
@@ -69,8 +59,8 @@ export const SIM = {
 	 * block starts from a level-wide base plus seeded noise; every point of the kind then
 	 * pushes it towards bad, strongest at the point and fading with distance. Power and water
 	 * spread along the tunnels (walking distance to the block's door, so a point reaches what
-	 * its tunnels connect, not what is nearby through rock); air spreads over an area, like
-	 * the sickness hotspots. `edge` is the falloff's steepness: higher keeps the point's
+	 * its tunnels connect, not what is nearby through rock); air and sickness spread over an
+	 * area. `edge` is the falloff's steepness: higher keeps the point's
 	 * strength further out and then drops sharply at its reach.
 	 */
 	conditions: {
@@ -101,6 +91,19 @@ export const SIM = {
 			levelWeight: 0.2,
 			noise: 0.12,
 			jitter: { min: 0.75, span: 0.35 } satisfies Spread
+		},
+		/**
+		 * Lung-sickness outbreaks: the sick share of a block's health reports. A plateau near
+		 * the outbreak that drops off sharply at its reach.
+		 */
+		sickness: {
+			spread: 'area',
+			edge: 4,
+			/** Background sick share, plus up to this much more on the crowded top levels. */
+			base: 0.02,
+			levelWeight: 0.08,
+			noise: 0.12,
+			jitter: { min: 0.75, span: 0.35 } satisfies Spread
 		}
 	},
 
@@ -116,6 +119,18 @@ export const SIM = {
 		} satisfies Record<'power' | 'water' | 'air', Spread>,
 		/** Point strength (its push at the centre). */
 		pointStrength: { min: 0.55, span: 0.45 } satisfies Spread,
+		/**
+		 * Lung-sickness outbreaks: `first` on L1, `drop` fewer each level down (at least one).
+		 * Each level down keeps `keep` of their size and heat, so they are many and fierce on
+		 * the first floors and few and mild further down.
+		 */
+		outbreaks: {
+			first: 9,
+			drop: 1.3,
+			keep: 0.82,
+			radius: { min: 6, span: 12 } satisfies Spread,
+			strength: { min: 0.8, span: 0.2 } satisfies Spread
+		},
 		/** Blocked tunnel stretches per level, and their length in tiles. */
 		blockedTunnels: { min: 1, span: 3 } satisfies Spread,
 		blockedLength: { min: 2, span: 4 } satisfies Spread,

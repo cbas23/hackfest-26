@@ -1,31 +1,18 @@
 /**
- * Simulated lung-sickness reports per habitation block. Most of a level stays near-clean;
- * the sickness sits in tight hotspots where nearly everyone who reports is sick, with a
- * steep edge around each. Outbreaks start on the top levels (the first floors): they get
- * more, larger and hotter hotspots, and the background rate also falls with depth.
- *
- * Where the hotspots fall and how strong they are comes from the shared `SicknessSettings`
- * (shared state in Convex, edited in the control center); the same settings always give the same
- * map. The fixed parts of the model are in `SIM.sickness`.
+ * Simulated lung-sickness reports per habitation block. Sickness comes from outbreaks: points
+ * of kind `sickness` in the shared state (Convex, placed in the control center), like the
+ * power, water and air points. Each outbreak makes the blocks around it sick, nearly everyone
+ * at its centre and fading out to its reach over the area (straight-line distance), with a
+ * steep edge; overlapping outbreaks compound. Every block also has a low background rate,
+ * higher on the crowded top levels, plus seeded noise. The scoring is shared with the other
+ * kinds (`kindScores` in `conditions.ts`, tuning in `SIM.conditions.sickness`); here the
+ * score becomes health reports.
  */
-import { perFloorWith, type Floor } from './world.js';
-import { mulberry32 } from '#lib/random.js';
-import { HOLLOW_SEED } from './data.js';
-import type { SicknessSettings } from './state.js';
+import { hashPair } from '#lib/random.js';
+import { kindScores, type PointArea } from './conditions.js';
 import { SIM, spread, streamSeed } from './simConfig.js';
-
-const C = SIM.sickness;
-
-/** The settings before anyone changes them (they reproduce the original map). */
-export const DEFAULT_SICKNESS: SicknessSettings = {
-	seed: HOLLOW_SEED,
-	hotspots: 9,
-	hotspotsDrop: 1.3,
-	spread: 1,
-	intensity: 1,
-	background: 0.14,
-	depthFalloff: 0.82
-};
+import type { StatePoint } from './state.js';
+import { perFloorWith, type Floor } from './world.js';
 
 export interface BlockSickness {
 	/** Residents of the block who have filed a health report. */
@@ -36,49 +23,26 @@ export interface BlockSickness {
 	score: number;
 }
 
-/** Room id → sickness reports (null for rooms that aren't housing). */
-export const sicknessOf = perFloorWith(
-	(floor: Floor, settings: SicknessSettings): (BlockSickness | null)[] => {
-		const rand = mulberry32(streamSeed(settings.seed, 'sickness') + floor.index * 104_729);
-		const { rooms } = floor.map;
-		const housing = rooms.filter((r) => floor.residents[r.id] > 0);
-		const level = floor.index;
-		const falloff = Math.min(1, Math.max(0.05, settings.depthFalloff));
+export interface FloorSickness {
+	/** Room id → sickness reports (null for rooms that aren't housing). */
+	blocks: (BlockSickness | null)[];
+	/** Every outbreak on this floor, with the blocks it reaches. */
+	areas: PointArea[];
+}
 
-		// Hotspots: many and fierce on the first floors, few and milder further down.
-		const reach = Math.pow(falloff, level);
-		const background = settings.background * Math.pow(falloff, level * C.backgroundDepthPower);
-		const count = Math.max(1, Math.floor(settings.hotspots - level * settings.hotspotsDrop));
-		const hotspots = Array.from({ length: settings.hotspots > 0 ? count : 0 }, () => {
-			const r = housing[Math.floor(rand() * housing.length)];
-			return {
-				x: r.x + r.w / 2,
-				y: r.y + r.h / 2,
-				radius: spread(C.radius, rand()) * (0.6 + reach * 0.4) * settings.spread,
-				peak: Math.min(1, spread(C.peak, rand()) * (0.45 + reach * 0.55) * settings.intensity)
-			};
-		});
-
-		return rooms.map((r): BlockSickness | null => {
-			const residents = floor.residents[r.id];
-			if (!residents) return null;
-			const cx = r.x + r.w / 2;
-			const cy = r.y + r.h / 2;
-			// Strongest hotspot here: a plateau near its centre that drops off sharply at the edge.
-			const heat = hotspots.reduce((m, h) => {
-				const d = Math.hypot(cx - h.x, cy - h.y) / Math.max(0.1, h.radius);
-				return Math.max(m, h.peak / (1 + Math.pow(d, 4)));
-			}, 0);
-			// Per-block noise keeps hotspots patchy, with the odd isolated sick block outside them.
-			const stray = rand() < C.stray * reach ? spread(C.strayScore, rand()) : 0;
-			const bg = background * rand() * 2;
-			const score = Math.min(1, Math.max(0, Math.max(heat * (0.75 + rand() * 0.35), stray) + bg));
-			const reported = Math.max(1, Math.round(residents * spread(C.reportShare, rand())));
-			const sick = Math.round(reported * score);
-			return { reported, sick, score: sick / reported };
-		});
-	}
-);
+/** Sickness on `floor` from the city's points (all levels and kinds; it picks its outbreaks). */
+export const sicknessOn = perFloorWith((floor: Floor, points: StatePoint[]): FloorSickness => {
+	const { score, areas } = kindScores(floor, 'sickness', points);
+	const seed = streamSeed(floor.seed, 'sickness') ^ floor.index;
+	const blocks = score.map((s, id): BlockSickness | null => {
+		if (s === null) return null;
+		const share = spread(SIM.sickness.reportShare, hashPair(id * 13 + 5, seed));
+		const reported = Math.max(1, Math.round(floor.residents[id] * share));
+		const sick = Math.round(reported * s);
+		return { reported, sick, score: sick / reported };
+	});
+	return { blocks, areas };
+});
 
 /** Reports summed over some floors' sickness: how many reported, how many sick, and the sick share. */
 export function sicknessTotals(floors: (BlockSickness | null)[][]) {

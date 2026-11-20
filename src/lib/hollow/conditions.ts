@@ -7,15 +7,23 @@
  * - Every point of the kind pushes the blocks it reaches towards bad: in full at the point,
  *   fading out to its reach. Power and water spread along the tunnels: the distance is the
  *   walk from the point to the block's door, so a fault reaches what its tunnels connect.
- *   Air spreads over an area (straight-line distance), like the sickness hotspots.
+ *   Air spreads over an area (straight-line distance).
  *   Overlapping points compound.
- * Tuning is in `SIM.conditions`.
+ * Lung-sickness outbreaks are scored the same way (`kindScores(floor, 'sickness', …)`, area
+ * spread) and turned into health reports in `sickness.ts`. Tuning is in `SIM.conditions`.
  */
 import { hashPair } from '#lib/random.js';
 import type { Room } from '#lib/tunnels/generate.js';
 import { LEVELS } from './data.js';
 import { SIM, spread, streamSeed } from './simConfig.js';
-import { POINT_INFO, POINT_RADIUS, type PointKind, type StatePoint, type Tile } from './state.js';
+import {
+	POINT_INFO,
+	POINT_RADIUS,
+	type PointKind,
+	type SourceKind,
+	type StatePoint,
+	type Tile
+} from './state.js';
 import { perFloor, perFloorWith, type Floor } from './world.js';
 
 /** A point on this floor with the housing blocks it reaches. */
@@ -129,15 +137,18 @@ function distanceFn(floor: Floor, point: StatePoint): (r: Room) => number {
 // ── Scores ──────────────────────────────────────────────────────────────────
 
 /** How much of a level-wide strain each kind takes from the level (0 easy, 1 hardest). */
-function levelStrain(kind: PointKind, floor: Floor) {
+function levelStrain(kind: SourceKind, floor: Floor) {
 	const level = LEVELS[floor.index];
+	const depth = floor.index / (LEVELS.length - 1);
 	if (kind === 'power') return 1 - level.light;
-	if (kind === 'water') return floor.index / (LEVELS.length - 1);
+	if (kind === 'water') return depth;
+	// Sickness: the crowded top levels catch it most.
+	if (kind === 'sickness') return 1 - depth;
 	return 1 - level.air;
 }
 
 /** Room id → score for one kind, from that kind's points on the floor. */
-function scoreKind(floor: Floor, kind: PointKind, points: StatePoint[]) {
+function scoreKind(floor: Floor, kind: SourceKind, points: StatePoint[]) {
 	const C = SIM.conditions[kind];
 	const seed = streamSeed(floor.seed, kind) ^ floor.index;
 	const base = C.base + C.levelWeight * levelStrain(kind, floor);
@@ -170,16 +181,21 @@ const clamp = (v: number) => Math.min(1, Math.max(0, v));
 
 /** Per floor: each kind's last points (by content) and its scores. */
 const kindCache = perFloor(
-	() => new Map<PointKind, { key: string; value: ReturnType<typeof scoreKind> }>()
+	() => new Map<SourceKind, { key: string; value: ReturnType<typeof scoreKind> }>()
 );
 const signature = (pts: StatePoint[]) =>
 	pts.map((p) => `${p.id}:${p.x},${p.y},${p.radius},${p.strength ?? 1}`).join('|');
 
 /**
- * One kind's scores on `floor`, cached by the content of that kind's points: a change to a
- * water point leaves power and air untouched.
+ * One kind's scores on `floor` (room id → 0–1, null for non-housing) and the blocks each of
+ * its points reaches, from the city's points (all levels and kinds; it picks its own). Cached
+ * by the content of that kind's points: a change to a water point leaves the others untouched.
  */
-function kindOn(floor: Floor, kind: PointKind, points: StatePoint[]) {
+export function kindScores(
+	floor: Floor,
+	kind: SourceKind,
+	points: StatePoint[]
+): { score: (number | null)[]; areas: PointArea[] } {
 	const mine = points.filter((p) => p.kind === kind && p.level === floor.index);
 	const key = signature(mine);
 	const cache = kindCache(floor);
@@ -192,9 +208,9 @@ function kindOn(floor: Floor, kind: PointKind, points: StatePoint[]) {
 
 /** Power, water and air on `floor` given the city's points (all levels; it picks its own). */
 export const conditionsOn = perFloorWith((floor: Floor, points: StatePoint[]): FloorConditions => {
-	const power = kindOn(floor, 'power', points);
-	const water = kindOn(floor, 'water', points);
-	const air = kindOn(floor, 'air', points);
+	const power = kindScores(floor, 'power', points);
+	const water = kindScores(floor, 'water', points);
+	const air = kindScores(floor, 'air', points);
 	return {
 		score: { power: power.score, water: water.score, air: air.score },
 		areas: [...power.areas, ...water.areas, ...air.areas]

@@ -5,8 +5,9 @@
  *
  * - Points: a few power, water and air points per level, centred on housing blocks, each
  *   with its own reach and strength; more and further-reaching on the darker, deeper levels.
+ * - Sickness: lung-sickness outbreaks centred on housing, many and fierce on the top levels,
+ *   few and mild further down.
  * - Blocked tunnels: a few short stretches of tunnel per level.
- * - Sickness: the default settings.
  * Tuning: `SIM.scenario`.
  */
 import { mulberry32 } from '#lib/random.js';
@@ -14,12 +15,12 @@ import { LEVELS } from './data.js';
 import {
 	POINT_KINDS,
 	POINT_RADIUS,
+	POINT_STRENGTH,
 	type BlockedTunnel,
 	type HollowState,
 	type StatePoint,
 	type Tile
 } from './state.js';
-import { DEFAULT_SICKNESS } from './sickness.js';
 import { SIM, spread, streamSeed } from './simConfig.js';
 import type { Floor, Hollow } from './world.js';
 
@@ -29,7 +30,6 @@ type New<T> = Omit<T, 'id'>;
 export interface Scenario {
 	points: New<StatePoint>[];
 	blockedTunnels: New<BlockedTunnel>[];
-	sickness: HollowState['sickness'];
 }
 
 const C = SIM.scenario;
@@ -80,7 +80,7 @@ export function tunnelRun(floor: Floor, start: Tile, length: number): Tile[] {
 	return run;
 }
 
-function floorScenario(floor: Floor, citySeed: number): Omit<Scenario, 'sickness'> {
+function floorScenario(floor: Floor, citySeed: number): Scenario {
 	const rand = mulberry32(streamSeed(citySeed, 'scenario') + floor.index * 7919);
 	const housing = floor.map.rooms.filter((r) => floor.residents[r.id] > 0);
 	const dark = 1 - LEVELS[floor.index].light;
@@ -123,12 +123,31 @@ function floorScenario(floor: Floor, citySeed: number): Omit<Scenario, 'sickness
 		i++;
 	}
 
+	// Outbreaks last, so adding them left the other points and tunnels as they were.
+	const O = C.outbreaks;
+	const keep = Math.pow(O.keep, floor.index);
+	const outbreaks = Math.max(1, Math.floor(O.first - floor.index * O.drop));
+	for (let i = 0; i < outbreaks && housing.length; i++) {
+		const r = housing[Math.floor(rand() * housing.length)];
+		const radius = Math.round(spread(O.radius, rand()) * (0.6 + keep * 0.4));
+		const strength = spread(O.strength, rand()) * (0.45 + keep * 0.55);
+		points.push({
+			kind: 'sickness',
+			level: floor.index,
+			x: Math.round(r.x + r.w / 2),
+			y: Math.round(r.y + r.h / 2),
+			radius: Math.min(POINT_RADIUS.max, Math.max(POINT_RADIUS.min, radius)),
+			strength:
+				Math.round(Math.min(POINT_STRENGTH.max, Math.max(POINT_STRENGTH.min, strength)) * 100) / 100
+		});
+	}
+
 	return { points, blockedTunnels };
 }
 
 /** The starter scenario for a city (builds every floor, so it is slow the first time). */
 export function starterScenario(city: Hollow): Scenario {
-	const out: Scenario = { points: [], blockedTunnels: [], sickness: { ...DEFAULT_SICKNESS } };
+	const out: Scenario = { points: [], blockedTunnels: [] };
 	for (const level of LEVELS) {
 		const s = floorScenario(city.floor(level.index), city.seed);
 		out.points.push(...s.points);
@@ -141,7 +160,6 @@ export function starterScenario(city: Hollow): Scenario {
 export function withLocalIds(s: Scenario): HollowState {
 	return {
 		points: s.points.map((p, i) => ({ ...p, id: `local:points:${i}` })),
-		blockedTunnels: s.blockedTunnels.map((t, i) => ({ ...t, id: `local:blockedTunnels:${i}` })),
-		sickness: s.sickness
+		blockedTunnels: s.blockedTunnels.map((t, i) => ({ ...t, id: `local:blockedTunnels:${i}` }))
 	};
 }

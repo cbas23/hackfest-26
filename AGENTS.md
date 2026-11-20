@@ -24,7 +24,7 @@
 The Hollow is a fictional underground city with seven levels, L1 The Crown (top) to L7 The Furnace
 (bottom), joined by six shafts. The Main Map is a civic dashboard: a sidebar (home address and
 data-layer cards) next to an interactive 3D map with facilities, power, water and air graded in
-five steps per block, blocked tunnels, lung-sickness hotspots and notifications for the viewer's home. Nothing on
+five steps per block, blocked tunnels, lung-sickness outbreaks and notifications for the viewer's home. Nothing on
 the map takes actions yet. **All data is fictional and simulated.** Keep it labelled that way.
 
 Two kinds of data:
@@ -34,14 +34,15 @@ Two kinds of data:
 - **State** lives in **Convex** (`convex/`). It changes over time, is shared by every viewer, and
   is edited from the Control center (`/control`, public for now). It is plain state, not events:
   there is no history, resolving or reopening.
-  - **Points** (`kind: power | water | air`, level, tile `x`/`y`, `radius` = reach,
+  - **Points** (`kind: power | water | air | sickness`, level, tile `x`/`y`, `radius` = reach,
     optional `strength` and `note`): sources that push the blocks they reach towards bad, fading
     out to their reach. **Power and water spread along the tunnels** (walking distance to a
-    block's door); **air spreads over an area** (straight-line, like the sickness hotspots).
-    Each block also gets a level-wide base and seeded noise. Scores run 0 (good) to 1 (bad) in
-    five steps (`CONDITION_STEPS`). The kinds are independent of each other.
+    block's door); **air and sickness spread over an area** (straight-line). Each block also
+    gets a level-wide base and seeded noise. Scores run 0 (good) to 1 (bad) in five steps
+    (`CONDITION_STEPS`; sickness: `SICK_STEPS`). The kinds are independent of each other.
+    `PointKind` is the graded services (power, water, air); `SourceKind` adds `sickness`
+    (lung-sickness outbreaks, turned into health reports per block in `sickness.ts`).
   - **Blocked tunnels**: 2–5 tile stretches that can't be passed.
-  - **Sickness settings**: one document of dials for the seeded lung-sickness hotspots.
 
 ## Architecture
 
@@ -64,11 +65,12 @@ Layers, bottom to top:
      scenario); `simulateFloor(floor)` gives a floor's places, `conditions` / `score(kind)`
      (power, water, air per block, 0 good to 1 bad), sickness and blocked tiles, cached per state
      object (replace lists, never mutate them); `pointTotals`, `sicknessTotals`,
-     `blockedTotals` sum over floors; `snapshot()` dumps everything as plain data. Seeds and
-     tuning are in `simConfig.ts` (`SIM`, `streamSeed`).
+     `blockedTotals` sum over floors; `snapshot()` dumps everything as plain data. `areas(kind)` lists a
+     kind's points with the blocks they reach. Seeds and tuning are in `simConfig.ts` (`SIM`, `streamSeed`).
    - The models: `nav.ts` (places, `placeColor`, routes), `conditions.ts` (points → graded
      scores per kind; `tunnelWalk`, `conditionStep`, `CONDITION_STEPS`; tuning in
-     `SIM.conditions`), `sickness.ts` (hotspots from the shared `SicknessSettings`), `notices.ts`
+     `SIM.conditions`), `sickness.ts` (sickness reports per block from the outbreak points, scored with
+     `kindScores`), `notices.ts`
      (notifications for a home block from its conditions and sickness), `scenario.ts` (the
      starter scenario and tunnel-run helpers); plus `status.ts` (severity colours for
      notices) and `format.ts` (number/depth formats for the UI)
@@ -98,13 +100,12 @@ Layers, bottom to top:
      card → map lens). New data layers: add the id to `LayerId`, a card (with a `content`
      snippet) to `LAYERS` in the sidebar, and a lens to `SECTION_LENS` / `mapStyle.ts`.
 5. Control center, in `src/lib/components/control/`: `floor-canvas.svelte` (2D level map; clicks
-   place power, water and air points or block tunnels; hovering a tunnel kind lights up the
-   tunnels it would reach), `point-panel.svelte` (one per kind: reach, strength, delete), `tunnel-panel.svelte`, `sickness-panel.svelte`, `state-row.svelte`, and
+   place power, water and air points and sickness outbreaks, or block tunnels; hovering a tunnel kind lights up the
+   tunnels it would reach), `point-panel.svelte` (one per kind: reach, strength, delete), `tunnel-panel.svelte`, `state-row.svelte`, and
    `control-state.svelte.ts` (tool state and the mutations).
-6. Convex, in `convex/`: `schema.ts` (`points`, `blockedTunnels` and the `sickness` settings
-   document), `model.ts` (validators and checks), `points.ts` / `blockedTunnels.ts` (`list`,
-   `add`, `update`, `remove`), `sickness.ts` (`get`, `set`) and `scenario.ts` (`load`,
-   `clearMap`).
+6. Convex, in `convex/`: `schema.ts` (`points`, sickness outbreaks included, and
+   `blockedTunnels`), `model.ts` (validators and checks), `points.ts` / `blockedTunnels.ts`
+   (`list`, `add`, `update`, `remove`) and `scenario.ts` (`load`, `clearMap`).
 7. App shell: `src/routes/+layout.svelte` (`SiteNav`, a title-only header with no links; the Map is the default page and `/control` is reachable by URL only, + full-height content). The map routes use
    `ssr = false`.
 

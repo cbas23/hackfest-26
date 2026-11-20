@@ -4,7 +4,7 @@
  * state and edits that state to match (adds, moves or clears points, blocks or reopens tunnels).
  * All of it is fictional. These are the plain shapes shared by the sidebar and the server.
  */
-import type { PointKind } from './state.js';
+import type { SourceKind } from './state.js';
 
 /** What the sidebar sends. */
 export interface ReportRequest {
@@ -18,7 +18,7 @@ export interface ReportRequest {
 export interface ReportChange {
 	action: 'added' | 'updated' | 'removed' | 'blocked' | 'reopened';
 	/** The data layer it shows on. */
-	layer: PointKind | 'tunnels';
+	layer: SourceKind | 'tunnels';
 	level: number;
 	/** One line for the resident, e.g. "Bad air near Block L3-42 (reach 8, strength 0.7)". */
 	text: string;

@@ -6,13 +6,19 @@
  */
 import { v } from 'convex/values';
 
-/** What a point puts out of order: power, water or air. */
-export const pointKind = v.union(v.literal('power'), v.literal('water'), v.literal('air'));
+/** What a point puts out of order (power, water or air), or a lung-sickness outbreak. */
+export const pointKind = v.union(
+	v.literal('power'),
+	v.literal('water'),
+	v.literal('air'),
+	v.literal('sickness')
+);
 
 /**
- * A source of bad power, water or air at a tile. It pushes the blocks it reaches towards
- * bad, fading out to `radius`: walking distance along the tunnels for power and water,
- * straight-line distance for air (see `src/lib/hollow/conditions.ts`).
+ * A source of bad power, water or air, or a lung-sickness outbreak, at a tile. It pushes the
+ * blocks it reaches towards bad, fading out to `radius`: walking distance along the tunnels
+ * for power and water, straight-line distance for air and sickness (see
+ * `src/lib/hollow/conditions.ts` and `sickness.ts`).
  */
 export const point = v.object({
 	kind: pointKind,
@@ -33,22 +39,6 @@ export const blockedTunnel = v.object({
 	level: v.number(),
 	tiles: v.array(tile),
 	reason: v.string()
-});
-
-/** Where lung sickness is: a seed for the hotspots plus a few dials. One document. */
-export const sicknessSettings = v.object({
-	seed: v.number(),
-	/** Hotspots on L1; each level down has `hotspotsDrop` fewer (at least one). */
-	hotspots: v.number(),
-	hotspotsDrop: v.number(),
-	/** Multiplier on hotspot radius. */
-	spread: v.number(),
-	/** Multiplier on how sick a hotspot's centre is. */
-	intensity: v.number(),
-	/** Background sick share on L1. */
-	background: v.number(),
-	/** Share of size, heat and background each level down keeps (1 = same everywhere). */
-	depthFalloff: v.number()
 });
 
 /** The Hollow has seven levels, L1 (0) to L7 (6). */

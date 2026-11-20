@@ -2,9 +2,9 @@
 	import { onMount } from 'svelte';
 	import { FACILITY_INFO } from '#lib/hollow/data.js';
 	import { CONDITION_STEPS, conditionStep, tunnelWalk } from '#lib/hollow/conditions.js';
-	import { POINT_INFO, POINT_KINDS, type PointKind, type Tile } from '#lib/hollow/state.js';
+	import { POINT_INFO, SOURCE_KINDS, type SourceKind, type Tile } from '#lib/hollow/state.js';
 	import { nearestRoad, tunnelRun } from '#lib/hollow/scenario.js';
-	import { SICK_STEPS, sickStep, sicknessOf } from '#lib/hollow/sickness.js';
+	import { SICK_STEPS, sickStep } from '#lib/hollow/sickness.js';
 	import { getHollow, simulateFloor } from '#lib/hollow/simulation.js';
 	import { cssHex, onThemeChange } from '#lib/hollow/theme.js';
 	import { floorBounds } from '#lib/hollow/world.js';
@@ -13,7 +13,7 @@
 
 	/**
 	 * A flat, top-down map of one level with its state drawn on top. Clicking places what the
-	 * open tab edits: a power, water or air point, or a blocked tunnel.
+	 * open tab edits: a power, water or air point, an outbreak, or a blocked tunnel.
 	 */
 
 	const hollow = getHollow();
@@ -105,13 +105,12 @@
 		const tab = control.tab;
 		const kind = isPointTab(tab) ? tab : null;
 		const kindColor = Object.fromEntries(
-			POINT_KINDS.map((k) => [k, cssHex(POINT_INFO[k].color)])
-		) as Record<PointKind, string>;
-		const sickness =
-			tab === 'sickness' ? sicknessOf(floor, control.sicknessDraft ?? sim.state.sickness) : null;
+			SOURCE_KINDS.map((k) => [k, cssHex(POINT_INFO[k].color)])
+		) as Record<SourceKind, string>;
+		const sickness = kind === 'sickness' ? sim.sickness : null;
 		const steps = SICK_STEPS.map((st) => cssHex(st.color));
 		/** Housing by the open kind's steps (sickness on its tab, power on the tunnels tab). */
-		const graded = kind ?? 'power';
+		const graded = kind && kind !== 'sickness' ? kind : 'power';
 		const score = sim.score(graded);
 		const stepColors = CONDITION_STEPS[graded].map((st) => cssHex(st.color));
 

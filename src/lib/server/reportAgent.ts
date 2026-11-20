@@ -4,7 +4,7 @@
  * "the power is back" weakens or removes the fault that reaches it. Everything is fictional.
  *
  * It sees the home block, its readings (power, water, air, sickness) and what is nearby, and has
- * tools to add, change and remove points and to block or reopen tunnels. Every write tool
+ * tools to add, change and remove points (outbreaks too) and to block or reopen tunnels. Every write tool
  * answers with the home's readings after the change, so the agent can check its work.
  * Server only (it holds the AI key and writes to Convex).
  */
@@ -19,7 +19,7 @@ import { LEVELS } from '#lib/hollow/data.js';
 import { placeCentre, placesOn, TILE_M, type Place } from '#lib/hollow/nav.js';
 import type { ReportChange, ReportResult } from '#lib/hollow/report.js';
 import { nearestRoad, tunnelRun } from '#lib/hollow/scenario.js';
-import { DEFAULT_SICKNESS, sicknessOf } from '#lib/hollow/sickness.js';
+import { sicknessOn } from '#lib/hollow/sickness.js';
 import { getHollow } from '#lib/hollow/simulation.js';
 import {
 	BLOCKED_TILES,
@@ -28,7 +28,7 @@ import {
 	POINT_RADIUS,
 	POINT_STRENGTH,
 	type HollowState,
-	type PointKind,
+	type SourceKind,
 	type StatePoint
 } from '#lib/hollow/state.js';
 import { aiModel } from './ai.js';
@@ -49,12 +49,10 @@ export function placeByKey(key: string): Place | null {
 
 /** The current shared state, read from Convex. */
 async function fetchState(client: ConvexHttpClient): Promise<HollowState> {
-	const [points, blocked, sickness] = await Promise.all([
+	const [points, blocked] = await Promise.all([
 		client.query(api.points.list, {}),
-		client.query(api.blockedTunnels.list, {}),
-		client.query(api.sickness.get, {})
+		client.query(api.blockedTunnels.list, {})
 	]);
-	const s = sickness ?? DEFAULT_SICKNESS;
 	return {
 		points: points.map((d) => ({
 			id: d._id,
@@ -71,16 +69,7 @@ async function fetchState(client: ConvexHttpClient): Promise<HollowState> {
 			level: d.level,
 			tiles: d.tiles,
 			reason: d.reason
-		})),
-		sickness: {
-			seed: s.seed,
-			hotspots: s.hotspots,
-			hotspotsDrop: s.hotspotsDrop,
-			spread: s.spread,
-			intensity: s.intensity,
-			background: s.background,
-			depthFalloff: s.depthFalloff
-		}
+		}))
 	};
 }
 
@@ -98,13 +87,16 @@ function homeReadings(state: HollowState, home: Place) {
 			];
 		})
 	);
-	const sick = sicknessOf(floor, state.sickness)[id];
+	const sickness = sicknessOn(floor, state.points);
+	const sick = sickness.blocks[id];
 	return {
 		...readings,
 		lungSickness: sick
 			? { sickShareOfReports: round(sick.score), reported: sick.reported, sick: sick.sick }
 			: null,
-		pointsReachingHome: cond.areas.filter((a) => a.blocks.includes(id)).map((a) => a.point.id)
+		pointsReachingHome: [...cond.areas, ...sickness.areas]
+			.filter((a) => a.blocks.includes(id))
+			.map((a) => a.point.id)
 	};
 }
 
@@ -159,18 +151,18 @@ function context(state: HollowState, home: Place) {
 const SYSTEM = `You are the report desk of the Hollow, a fictional underground city with seven levels (0 = L1 The Crown at the top … 6 = L7 The Furnace at the bottom). A resident sends a short report about their home. You keep the city's simulation honest: edit its shared state so it matches what the resident reports, then answer them.
 
 The state you can edit (all simulated):
-- Points: sources that make power, water or air bad. Each has a kind, a level, a tile x/y, a radius (reach in tiles, ${POINT_RADIUS.min}–${POINT_RADIUS.max}; one tile is ${TILE_M} m) and a strength (${POINT_STRENGTH.min}–${POINT_STRENGTH.max}, how bad it is at the centre). Power and water spread along the tunnels (walking distance to a block's door); air spreads over an area (straight-line distance). A point's push fades to half at its radius and to nothing soon after. Roughly, a block right at a point reads its strength as its score.
-- Scores run 0 (good) to 1 (bad) in five steps of 0.2. Power: Stable, Flicker, Brownout, Cuts, Blackout. Water: Clean, Fair, Poor, Unsafe, Toxic. Air: Clean, Fair, Stale, Poor, Hazardous. Each block also has a small level-wide base and noise you can't change.
+- Points: sources that make power, water or air bad, and lung-sickness outbreaks (kind "sickness"). Each has a kind, a level, a tile x/y, a radius (reach in tiles, ${POINT_RADIUS.min}–${POINT_RADIUS.max}; one tile is ${TILE_M} m) and a strength (${POINT_STRENGTH.min}–${POINT_STRENGTH.max}, how bad it is at the centre). Power and water spread along the tunnels (walking distance to a block's door); air and sickness spread over an area (straight-line distance). A point's push fades to half at its radius and to nothing soon after. Roughly, a block right at a point reads its strength as its score.
+- Scores run 0 (good) to 1 (bad) in five steps of 0.2. Power: Stable, Flicker, Brownout, Cuts, Blackout. Water: Clean, Fair, Poor, Unsafe, Toxic. Air: Clean, Fair, Stale, Poor, Hazardous. Lung sickness: the share of the block's health reports that are lung sickness (sickShareOfReports). Each block also has a small level-wide base and noise you can't change.
 - Blocked tunnels: ${BLOCKED_TILES.min}–${BLOCKED_TILES.max} tile stretches that can't be passed (a collapse, flooding, a checkpoint…).
-- Lung sickness comes from seeded hotspots you can't edit. Reports about coughing or sickness alone: explain that, and only change the air if they also describe bad air.
+- Lung sickness is a resident's health report, not a reading of the air: only add or strengthen an outbreak when the report says several people around them are sick (one person coughing is not an outbreak), and only change the air if they also describe bad air.
 
 How to work:
-- Read the report against the home's readings. If something is wrong that the map doesn't show, add a point (or strengthen a nearby one) so the home reads it. Place it at or next to the home (its centre tile for air, its door tunnel tile for power or water) unless the report says where it comes from; use findPlaces for named places. Pick a strength that lands the home on the step the report describes (e.g. "a bit stale" ≈ 0.45, "can't breathe" ≈ 0.9) and a modest reach (4–12 tiles for one block, more if they say the whole district).
+- Read the report against the home's readings. If something is wrong that the map doesn't show, add a point (or strengthen a nearby one) so the home reads it. Place it at or next to the home (its centre tile for air or sickness, its door tunnel tile for power or water) unless the report says where it comes from; use findPlaces for named places. Pick a strength that lands the home on the step the report describes (e.g. "a bit stale" ≈ 0.45, "can't breathe" ≈ 0.9) and a modest reach (4–12 tiles for one block, more if they say the whole district).
 - If they say something is fixed or fine but the map shows it bad, weaken, shrink or remove the points that reach the home (pointsReachingHome).
 - For a tunnel they can't get through, block a short stretch near where they say (default: by their door); if a blocked tunnel near them is open again, reopen it.
 - Check the readings each write tool returns and adjust if the home isn't on the right step. Make the fewest changes that do it (usually one or two), and only on other levels if the report names them.
 - Give every new point a short note for the residents it touches, in plain words (e.g. "Residents report smoke in the vents near Block L3-42").
-- If the report is unclear, not about power, water, air or tunnels, or asks for something you can't do, change nothing.
+- If the report is unclear, not about power, water, air, sickness or tunnels, or asks for something you can't do, change nothing.
 
 Finish with a reply to the resident: one to three short sentences in plain, calm civic language, saying what you changed on the map (or why you changed nothing). Stay in the world (underground: no windows, sky or outside). Don't mention ids, tools, scores or tile numbers, and don't answer questions that aren't reports.`;
 
@@ -193,7 +185,7 @@ export async function handleReport(message: string, home: Place): Promise<Report
 	const fitRadius = (r: number) => clamp(Math.round(r), POINT_RADIUS.min, POINT_RADIUS.max);
 	const fitStrength = (s: number) => round(clamp(s, POINT_STRENGTH.min, POINT_STRENGTH.max));
 	const findPoint = (id: string) => state.points.find((p) => p.id === id);
-	const describe = (kind: PointKind, level: number, radius: number, strength: number) =>
+	const describe = (kind: SourceKind, level: number, radius: number, strength: number) =>
 		`${POINT_INFO[kind].point} on ${LEVELS[level].code} (reach ${radius}, strength ${strength})`;
 
 	const tools = {
@@ -231,9 +223,9 @@ export async function handleReport(message: string, home: Place): Promise<Report
 		}),
 
 		addPoint: tool({
-			description: 'Add a source of bad power, water or air.',
+			description: 'Add a source of bad power, water or air, or a lung-sickness outbreak.',
 			inputSchema: z.object({
-				kind: z.enum(['power', 'water', 'air']),
+				kind: z.enum(['power', 'water', 'air', 'sickness']),
 				level: z.number().int().min(0).max(6).optional().describe("Default: the home's level"),
 				x: z.number().describe('Tile x'),
 				y: z.number().describe('Tile y'),

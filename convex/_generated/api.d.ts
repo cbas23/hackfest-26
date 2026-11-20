@@ -12,7 +12,6 @@ import type * as blockedTunnels from "../blockedTunnels.js";
 import type * as model from "../model.js";
 import type * as points from "../points.js";
 import type * as scenario from "../scenario.js";
-import type * as sickness from "../sickness.js";
 
 import type {
   ApiFromModules,
@@ -25,7 +24,6 @@ declare const fullApi: ApiFromModules<{
   model: typeof model;
   points: typeof points;
   scenario: typeof scenario;
-  sickness: typeof sickness;
 }>;
 
 /**

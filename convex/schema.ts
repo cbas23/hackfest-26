@@ -1,9 +1,8 @@
 import { defineSchema, defineTable } from 'convex/server';
-import { blockedTunnel, point, sicknessSettings } from './model';
+import { blockedTunnel, point } from './model';
 
-/** The city's shared state: bad points (power, water, air), blocked tunnels, sickness dials. */
+/** The city's shared state: points (bad power, water, air; sickness outbreaks) and blocked tunnels. */
 export default defineSchema({
 	points: defineTable(point.fields).index('by_level', ['level']),
-	blockedTunnels: defineTable(blockedTunnel.fields).index('by_level', ['level']),
-	sickness: defineTable(sicknessSettings.fields)
+	blockedTunnels: defineTable(blockedTunnel.fields).index('by_level', ['level'])
 });

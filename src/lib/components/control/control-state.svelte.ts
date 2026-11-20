@@ -6,16 +6,15 @@
 import { api } from '#convex/_generated/api.js';
 import type { Id } from '#convex/_generated/dataModel.js';
 import { SIM } from '#lib/hollow/simConfig.js';
-import type { PointKind, SicknessSettings, Tile } from '#lib/hollow/state.js';
+import type { SourceKind, Tile } from '#lib/hollow/state.js';
 import { getHollow } from '#lib/hollow/simulation.js';
 import { starterScenario } from '#lib/hollow/scenario.js';
 import { mutate } from '#lib/live/state.svelte.js';
 
-/** The tabs: one per point kind, plus blocked tunnels and sickness. */
-export type ControlTab = PointKind | 'tunnels' | 'sickness';
+/** The tabs: one per kind of point (power, water, air, sickness), plus blocked tunnels. */
+export type ControlTab = SourceKind | 'tunnels';
 
-export const isPointTab = (tab: ControlTab): tab is PointKind =>
-	tab === 'power' || tab === 'water' || tab === 'air';
+export const isPointTab = (tab: ControlTab): tab is SourceKind => tab !== 'tunnels';
 
 export const control = $state({
 	level: 0,
@@ -26,8 +25,6 @@ export const control = $state({
 	/** New blocked tunnels' length and reason. */
 	tunnelLength: 3,
 	reason: SIM.scenario.blockedReasons[0] as string,
-	/** Unpublished sickness settings (null: none, the map shows the live ones). */
-	sicknessDraft: null as SicknessSettings | null,
 	/** A mutation in flight. */
 	busy: false
 });
@@ -44,7 +41,7 @@ async function run(fn: () => Promise<unknown>) {
 	}
 }
 
-export const addPoint = (kind: PointKind, x: number, y: number) =>
+export const addPoint = (kind: SourceKind, x: number, y: number) =>
 	run(() =>
 		mutate(api.points.add, {
 			kind,
@@ -70,15 +67,9 @@ export const addBlockedTunnel = (tiles: Tile[]) =>
 export const removeBlockedTunnel = (id: string) =>
 	run(() => mutate(api.blockedTunnels.remove, { id: id as Id<'blockedTunnels'> }));
 
-export const publishSickness = (settings: SicknessSettings) =>
-	run(async () => {
-		await mutate(api.sickness.set, settings);
-		control.sicknessDraft = null;
-	});
-
 /** Replace the whole state with the starter scenario drawn from the city seed. */
 export const loadStarterScenario = () =>
 	run(() => mutate(api.scenario.load, starterScenario(getHollow())));
 
-/** Delete every point and blocked tunnel. */
+/** Delete every point (outbreaks too) and blocked tunnel. */
 export const clearMap = () => run(() => mutate(api.scenario.clearMap, {}));
