@@ -131,10 +131,9 @@
 	/* Shafts: base colour mixed with their status, and the dark well at the top. */
 	--map-shaft: var(--chart-4);
 	--map-well: var(--background);
-	/* Under a data lens: the receding chambers and the flat tunnel trace. */
+	/* Under a data lens: the receding chambers. */
 	--map-muted-wall: var(--border);
 	--map-muted-roof: var(--secondary);
-	--map-lens-tunnel: var(--background);
 	/* Sickness lens, low → high. */
 	--map-sick-1: color-mix(in oklch, var(--primary) 6%, var(--border));
 	--map-sick-2: color-mix(in oklch, var(--primary) 35%, var(--border));
