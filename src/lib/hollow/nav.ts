@@ -39,6 +39,8 @@ export interface RouteOptions {
 	permit: boolean;
 	/** Allow the unmapped Old Mine Vent. */
 	unregistered: boolean;
+	/** Tunnel tiles that can't be passed on a floor ("x,y"), e.g. the blocked tunnels. */
+	blocked?: (floor: number) => ReadonlySet<string>;
 }
 
 export interface Leg {
@@ -230,7 +232,9 @@ export function findRoute(
 	opts: RouteOptions
 ): Route | null {
 	const floors = LEVELS.map((_, i) => hollow.floor(i));
-	const isRoad = (f: number, x: number, y: number) => floors[f].map.grid[y]?.[x] === 'road';
+	const blocked = floors.map((fl) => opts.blocked?.(fl.index));
+	const isRoad = (f: number, x: number, y: number) =>
+		floors[f].map.grid[y]?.[x] === 'road' && !blocked[f]?.has(`${x},${y}`);
 	// Access tile → shaft index, per floor.
 	const shaftAt = new Map<number, number>();
 	for (const fl of floors)

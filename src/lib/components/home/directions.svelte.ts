@@ -1,6 +1,7 @@
 import { LEVELS } from '#lib/hollow/data.js';
 import { findRoute, placesOn, type Place, type PlaceKind, type Route } from '#lib/hollow/nav.js';
-import { getHollow } from '#lib/hollow/simulation.js';
+import { getHollow, simulateFloor } from '#lib/hollow/simulation.js';
+import { live } from '#lib/live/state.svelte.js';
 import { placeByKey } from './address.js';
 import { home } from './home-state.svelte.js';
 
@@ -30,9 +31,13 @@ class Directions {
 		const a = this.fromPlace;
 		const b = this.toPlace;
 		if (!a || !b) return undefined;
-		return findRoute(getHollow(), a, b, {
+		// Re-route when the blocked tunnels change.
+		void live.version;
+		const hollow = getHollow();
+		return findRoute(hollow, a, b, {
 			permit: this.permit,
-			unregistered: this.unregistered
+			unregistered: this.unregistered,
+			blocked: (f) => simulateFloor(hollow.floor(f)).blocked
 		});
 	});
 

@@ -200,7 +200,8 @@
 					</div>
 				{:else if route === null}
 					<p class="rounded-md bg-muted/50 p-2.5 text-xs text-amber-500">
-						No route. Every way there needs a permit or an unmapped shaft; try the options above.
+						No route. Blocked tunnels cut every way there, or it needs a permit or an unmapped
+						shaft; try the options above.
 					</p>
 				{/if}
 			</div>
