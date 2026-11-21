@@ -220,8 +220,6 @@
 	let reveal = $state<{ leg: number; tiles: number } | null>(null);
 	/** True once the escape route has reached the safe block (until it replays or ends). */
 	let arrived = $state(false);
-	/** What the playback is doing, for the escape card. */
-	let playStatus = $state<string | null>(null);
 	/** Bumped to cancel a running playback. */
 	let playback = 0;
 
@@ -235,13 +233,11 @@
 		select(null);
 		for (let i = 0; i < r.legs.length; i++) {
 			const leg = r.legs[i];
-			playStatus = i === 0 ? 'Leaving home…' : `Arriving on ${LEVELS[leg.floor].code}…`;
 			reveal = { leg: i, tiles: 1 };
 			showRoute(leg.floor);
 			// Let the camera settle on the leg before drawing it.
 			await wait(i === 0 ? 700 : 1000);
 			if (stale()) return;
-			playStatus = 'Following the tunnels…';
 			const ms = Math.min(3200, Math.max(1400, leg.path.length * 22));
 			const t0 = performance.now();
 			let drawnAt = 0;
@@ -257,23 +253,18 @@
 				}
 				if (k >= 1) break;
 			}
-			const ride = r.rides[i];
-			if (ride) {
-				const to = LEVELS[ride.to];
-				playStatus = `${ride.to > ride.from ? '▼' : '▲'} ${SHAFTS[ride.shaft].name} to ${to.code} ${to.name}`;
+			if (r.rides[i]) {
 				await wait(900);
 				if (stale()) return;
 			}
 		}
 		reveal = null;
-		playStatus = null;
 		arrived = true;
 	}
 
 	function stopEscape() {
 		playback++;
 		reveal = null;
-		playStatus = null;
 		arrived = false;
 	}
 
@@ -375,7 +366,7 @@
 					h: pinHeight('shaft'),
 					level: levelIndex,
 					kind: 'ride',
-					label: `${ride.to > ride.from ? '▼' : '▲'} ${SHAFTS[ride.shaft].name} to ${LEVELS[ride.to].code}`,
+					label: `${ride.to > ride.from ? '▼' : '▲'} Shaft to ${LEVELS[ride.to].code}`,
 					color: SHAFT_COLORS[SHAFTS[ride.shaft].status],
 					toFloor: ride.to
 				});
@@ -480,7 +471,6 @@
 				.map((p) => ({ el: pinEls[p.key], x: p.x, y: p.y, h: p.h, level: p.level }))
 		);
 	});
-	const showNames = $derived(distance < 200);
 
 	// ── Data lens (driven by the open sidebar section) ──────────────────────
 	const lens = $derived(openLens());
@@ -655,7 +645,6 @@
 							onblur={() => (tagHoverLevel = null)}
 						>
 							<span class="font-semibold text-primary">{l.code}</span>
-							{l.name}
 							<span class="text-muted-foreground tabular-nums">{formatDepth(l.depth)}</span>
 						</Button>
 					{:else if p.kind === 'home'}
@@ -671,14 +660,6 @@
 								<HouseIcon class="size-3.5" />
 							</span>
 							<span class="-mt-1 size-2 rotate-45 bg-primary" aria-hidden="true"></span>
-							{#if showNames || overview}
-								<span
-									class="mt-0.5 text-xs font-semibold whitespace-nowrap text-foreground [text-shadow:0_0_3px_var(--background),0_0_6px_var(--background)]"
-									>Home · {overview
-										? LEVELS[place.floor].code
-										: place.label.replace('Block ', '')}</span
-								>
-							{/if}
 						</button>
 					{:else if p.kind === 'to' && directions.escaping}
 						<!-- The escape's safe block: a pulsing green beacon. -->
@@ -775,29 +756,14 @@
 								color={p.color}
 								size={place.kind === 'shaft' ? 28 : 24}
 							/>
-							{#if showNames || p.kind === 'shaft'}
-								<span
-									class="mt-0.5 text-xs font-semibold whitespace-nowrap text-foreground [text-shadow:0_0_3px_var(--background),0_0_6px_var(--background)]"
-									>{p.label}</span
-								>
-							{/if}
 						</button>
 					{/if}
 				</div>
 			{/each}
 		</div>
 
-		<!-- A green flash on reaching safety. -->
-		{#if arrived}
-			<div class="safe-flash pointer-events-none absolute inset-0 z-[5]" aria-hidden="true"></div>
-		{/if}
-
 		{#if directions.escaping}
-			<EscapeHud
-				class="absolute top-4 left-1/2 z-30 -translate-x-1/2"
-				status={playStatus}
-				{arrived}
-			/>
+			<EscapeHud class="absolute top-4 left-1/2 z-30 -translate-x-1/2" {arrived} />
 		{/if}
 
 		{#if directions.picking}
@@ -965,27 +931,3 @@
 		{/if}
 	</section>
 </div>
-
-<style>
-	/* One green flash when the escape route reaches the safe block. */
-	.safe-flash {
-		animation: safe-flash 2.6s ease-out both;
-	}
-	@keyframes safe-flash {
-		0% {
-			box-shadow: inset 0 0 0 0 transparent;
-		}
-		15% {
-			box-shadow: inset 0 0 120px 20px
-				color-mix(in oklch, var(--color-emerald-400) 60%, transparent);
-		}
-		100% {
-			box-shadow: inset 0 0 0 0 transparent;
-		}
-	}
-	@media (prefers-reduced-motion: reduce) {
-		.safe-flash {
-			animation: none;
-		}
-	}
-</style>

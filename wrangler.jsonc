@@ -1,0 +1,9 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "hollow-guard-map",
+	"compatibility_date": "2026-11-01",
+	"compatibility_flags": ["nodejs_compat"],
+	"observability": { "enabled": true },
+	// Public build-time value; OPENROUTER_API_KEY is a Worker secret (`wrangler secret put`).
+	"vars": { "PUBLIC_CONVEX_URL": "https://valiant-tapir-870.convex.cloud" }
+}

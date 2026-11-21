@@ -1,4 +1,10 @@
-# The Hollow
+<p align="center">
+  <img src="src/lib/assets/favicon.svg" alt="Hollow Guard Map icon" width="120" />
+</p>
+
+<h1 align="center">Hollow Guard Map</h1>
+
+<p align="center"><a href="https://hollow-guard-map.cbas.workers.dev">hollow-guard-map.cbas.workers.dev</a></p>
 
 A hackathon project (Hackfest '26) set in **the Hollow**: a fictional underground city seven levels
 deep beneath the dead cities above. Air, light and water are metered down from the top, and things
@@ -37,7 +43,7 @@ bun run dev            # start the dev server
 bun run check          # svelte-check / type check
 bun run lint           # prettier + eslint
 bun run format         # prettier --write
-bun run build          # production build (adapter-auto)
+bun run build          # production build (adapter-cloudflare)
 ```
 
 Other scripts:
@@ -46,6 +52,17 @@ Other scripts:
 bun run bake:hollow            # regenerate src/lib/hollow/floors.json after changing the generator, levels or seed
 bun scripts/validate-intel.ts  # check the fictional intel dataset against the map data
 ```
+
+## Deploying
+
+The app runs on Cloudflare Workers (`@sveltejs/adapter-cloudflare`, config in `wrangler.jsonc`).
+
+```sh
+bun run build && bunx wrangler deploy
+```
+
+`PUBLIC_CONVEX_URL` is a plain var in `wrangler.jsonc`. `OPENROUTER_API_KEY` is a Worker secret:
+set it once with `bunx wrangler secret put OPENROUTER_API_KEY`.
 
 ## Architecture
 

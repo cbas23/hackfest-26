@@ -80,13 +80,20 @@ const dirIndex = (a: Point, b: Point) => {
 };
 
 // ── Places ──────────────────────────────────────────────────────────────────
+/** Places are labelled by their type only, never by a name. */
+const TYPE_LABEL: Record<FacilityKind, string> = {
+	air: 'Air exchange',
+	water: 'Water works',
+	clinic: 'Clinic',
+	market: 'Market',
+	directorate: 'Directorate office'
+};
+
 /** Every named place on a floor (cached per floor; treat the array as read-only). */
 export const placesOn = perFloor((floor: Floor): Place[] => {
 	const level = LEVELS[floor.index];
 	const where = `${level.code} ${level.name}`;
 	const out: Place[] = [];
-	let farm = 0;
-	let plant = 0;
 	for (const r of floor.map.rooms) {
 		const base = { key: `${floor.index}:${r.id}`, floor: floor.index, room: r };
 		if (r.kind === 'gate') {
@@ -96,21 +103,21 @@ export const placesOn = perFloor((floor: Floor): Place[] => {
 				...base,
 				kind: 'shaft',
 				shaft,
-				label: SHAFTS[shaft].name,
+				label: 'Shaft',
 				sub: `Shaft landing · ${where}`
 			});
 		} else if (r.kind === 'farm') {
 			out.push({
 				...base,
 				kind: 'farm',
-				label: `${level.name} Farm ${++farm}`,
+				label: 'Farm',
 				sub: `Communal farm · ${where}`
 			});
 		} else if (r.kind === 'plant') {
 			out.push({
 				...base,
 				kind: 'plant',
-				label: `${level.name} Geothermal ${++plant}`,
+				label: 'Geothermal plant',
 				sub: `Geothermal plant · ${where}`
 			});
 		} else if (floor.facilities.has(r.id)) {
@@ -118,7 +125,7 @@ export const placesOn = perFloor((floor: Floor): Place[] => {
 			out.push({
 				...base,
 				kind: f.kind,
-				label: f.name,
+				label: TYPE_LABEL[f.kind],
 				sub: `${FACILITY_INFO[f.kind].label} · ${where}`,
 				note: f.note ?? FACILITY_INFO[f.kind].about
 			});

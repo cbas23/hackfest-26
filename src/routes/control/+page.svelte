@@ -68,7 +68,7 @@
 	}
 </script>
 
-<svelte:head><title>The Hollow · Control center</title></svelte:head>
+<svelte:head><title>Hollow Guard Map · Control center</title></svelte:head>
 
 <!-- Phones: the page scrolls, the level map on top and the editing panel below it. -->
 <main class="flex h-full flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">

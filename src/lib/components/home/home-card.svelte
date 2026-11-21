@@ -316,7 +316,7 @@
 							<span style="color:{SHAFT_COLORS[SHAFTS[ride.shaft].status]}"
 								>{ride.to > ride.from ? '▼' : '▲'}</span
 							>
-							{SHAFTS[ride.shaft].name}
+							Shaft
 						</li>
 					{/if}
 				{/each}

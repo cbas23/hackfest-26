@@ -12,7 +12,7 @@
 	<a
 		href={resolve('/')}
 		class="group flex h-full shrink-0 items-center outline-none"
-		aria-label="The Hollow, home"
+		aria-label="Hollow Guard Map, home"
 	>
 		<!-- Icon cell, cut off by a slanted edge. -->
 		<span class="relative grid h-full w-16 place-items-center pr-3">
@@ -38,7 +38,7 @@
 		<span
 			class="rounded-sm px-3 text-sm leading-none font-semibold tracking-[0.2em] whitespace-nowrap uppercase group-focus-visible:ring-2 group-focus-visible:ring-ring"
 		>
-			The Hollow
+			Hollow Guard Map
 		</span>
 	</a>
 </header>
